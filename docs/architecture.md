@@ -1,580 +1,511 @@
-# Архитектура консольного приложения "Sorter"
+# Архитектура приложения «TimSort Console»
 
-## Часть 1. Текстовое описание архитектуры
+## 1. Общее описание и технологические рамки
 
-### 1.1. Назначение и общий замысел
+Приложение представляет собой консольную утилиту на Java 17+, собираемую средствами Maven. Используется исключительно стандартная библиотека (плюс JUnit 5 для тестов) — это прямое следствие запрета на готовые реализации сортировки, поиска и паттернов: TimSort, бинарный поиск внутри него, сортировка вставками, подсчёт вхождений и все паттерны реализуются вручную, без Lombok и сторонних фреймворков.
 
-Приложение представляет собой консольную утилиту на Java (17+), работающую в бесконечном цикле и предоставляющую пользователю возможность сформировать коллекцию объектов класса **Автобус** (`Bus` с полями «номер маршрута», «модель», «пробег»), отсортировать её собственной реализацией алгоритма **Timsort** по любому из трёх полей в обоих направлениях, а также воспользоваться дополнительными режимами: сортировкой «только чётных» элементов, дозаписью результатов в файл, многопоточным подсчётом вхождений элемента. Выход из цикла возможен исключительно через явный выбор соответствующего пункта меню. Все готовые реализации сортировки, поиска и паттернов не используются — Timsort, компараторы-комбинаторы, Builder, Стратегия и кастомная коллекция реализованы вручную.
+В качестве сортируемого класса выбран **Автобус** с полями `routeNumber` (номер маршрута, `int`), `model` (модель, `String`), `mileage` (пробег, `long`). Выбор обусловлен тем, что два из трёх полей числовые, что естественно покрывает дополнительное задание 1 (паритетная сортировка по числовому полю), а строковое поле демонстрирует лексикографическое сравнение.
 
-Замысел архитектуры — гибрид объектно-ориентированной структуры пакетов и функционального стиля там, где он даёт выгоду: доменные объекты неизменяемы, все точки расширения выражены функциональными интерфейсами, конфигурация поведения собирается композицией функций и лямбда-выражений, а изменяемое состояние приложения сознательно локализовано в одном классе. Это и есть «максимально функциональный стиль в разумных пределах»: чистые функции в ядре (валидация, сортировка, парсинг), лямбды и стримы на границах, но при этом понятная пакетная структура и явные паттерны Builder и Strategy, требуемые заданием.
+Общая архитектурная идея — **functional core / imperative shell**: всё вычислительное ядро (валидация, сортировка, генерация данных, подсчёт) оформлено как чистые, иммутабельные, композируемые функции и классы, а «нечистая» периферия (консоль, файлы, потоки выполнения, меню-цикл) изолирована в тонкой внешней оболочке и отделена от ядра интерфейсами.
 
-### 1.2. Слои и пакеты
+## 2. Слои и направление зависимостей
 
-Система разделена на шесть пакетов, отражающих слои ответственности. Корневой пакет по конвенции Java именуется по домену организации, например `ru.university.bussort`, внутри которого располагаются подпакеты `domain`, `validation`, `collection`, `data`, `algorithm`, `io`, `concurrent` и `ui`. Зависимости направлены строго сверху вниз: слой представления (`ui`) знает обо всех слоях, слой алгоритмов и данных зависит только от домена и валидации, а домен не зависит ни от кого. Инфраструктурный пакет `io` (чтение консоли и запись файлов) и пакет `concurrent` используются только слоем представления. Такая направленность исключает циклические зависимости и позволяет тестировать ядро (валидацию, Timsort, парсер) без консоли и файловой системы.
+Приложение делится на пять слоёв. Слой презентации (`app`) содержит точку входа, меню-цикл и абстракцию консоли. Слой источников данных (`source`) отвечает за наполнение коллекции тремя способами. Ядро (`model`, `collection`, `validation`, `sort`) содержит доменную модель, кастомную коллекцию, валидацию и сортировки. Периферия (`io`, `concurrent`) занимается записью в файл и многопоточным подсчётом. Все зависимости направлены от периферии к ядру и только через интерфейсы; конкретные реализации связываются в единственной точке — классе `Application` (composition root, ручное внедрение зависимостей через конструкторы). Ни один класс ядра не знает о существовании консоли, файлов или меню.
 
-### 1.3. Доменная модель и паттерн Builder
+## 3. Пакетная структура
 
-Класс `Bus` спроектирован как неизменяемый value-объект: он объявлен `final`, все три поля (`routeNumber: int`, `model: String`, `mileage: long`) помечены `private final`, доступ осуществляется методами-аксессорами без префикса `get` (в стиле `record`-подобных проекций), сеттеры отсутствуют в принципе, а `equals`, `hashCode` и `toString` реализованы по контракту — `equals` понадобится многопоточному подсчёту вхождений. Создание объекта возможно только через вложенный статический класс `BusBuilder`, реализующий паттерн Builder с fluent-интерфейсом: каждый сеттер возвращает сам билдер, а метод `build()` сначала прогоняет накопленное состояние через скомпонованный валидатор и лишь затем конструирует `Bus`. Таким образом, в системе физически не может существовать невалидного экземпляра `Bus` — инварианты гарантируются конструкцией, что соответствует функциональному принципу «делать некорректные состояния невыразимыми».
+```
+com.example.timsort
+├── app          — Application, ConsoleMenu, Command, ConsoleIO, Session
+├── model        — Bus, Bus.Builder (вложенный), BusField (enum)
+├── collection   — CustomArrayList<T>
+├── validation   — Validator<T>, Rule<T>, ValidationResult<T>, BusValidator
+├── source       — DataSource<T>, RandomBusSource, FileBusSource, ManualBusSource
+├── codec        — BusCodec (строка ⇄ объект)
+├── sort         — Sorter<T>, TimSorter<T>, ParitySorter<T>, Run, BusComparators
+├── io           — ResultWriter<T>, FileResultWriter<T>
+└── concurrent   — OccurrenceCounter<T>, ParallelOccurrenceCounter<T>
+```
 
-### 1.4. Функциональная валидация
+Каждый пакет соответствует одной ответственности слоя, что делает структуру читаемой и облегчает распределение работы по веткам участников (см. раздел о Git).
 
-Валидация построена как композиция чистых функций. Функциональный интерфейс `Validator<T>` имеет единственный метод `validate(T value): ValidationResult` и метод-комбинатор `and`, позволяющий собирать цепочки правил. `ValidationResult` — неизменяемый агрегат ошибок с операцией `combine`, что даёт классическую аппликативную валидацию: пользователь видит сразу все ошибки, а не первую попавшуюся. Фабрика `BusValidators` поставляет правила для каждого поля и композитный валидатор билдера. Для полей установлены следующие ограничения:
+## 4. Доменная модель
 
-- номер маршрута — целое число в диапазоне от 1 до 999;
-- модель — непустая строка длиной до 40 символов, допускающая буквы, цифры, пробелы, дефисы и точки;
-- пробег — неотрицательное целое число, не превышающее 5 000 000 км.
+`Bus` — полностью иммутабельный класс: все поля `final`, геттеры без сеттеров, реализованы `equals`/`hashCode` по всем трём полям (это необходимо для корректного подсчёта вхождений в дополнительном задании 4) и `toString`. Создание возможно только через вложенный статический **Builder**, реализованный вручную: методы `routeNumber(int)`, `model(String)`, `mileage(long)` возвращают сам билдер (текучий интерфейс), а `build()` собирает объект и проверяет, что все поля заданы (иначе — исключение времени сборки). Enum `BusField` с константами `ROUTE_NUMBER`, `MODEL`, `MILEAGE` служит типобезопасным ключом для выбора компаратора и пункта меню, исключая «магические строки».
 
-Если `build()` обнаруживает нарушения, выбрасывается исключение `InvalidDataException`, несущее полный список сообщений; это единственная «нечистая» точка валидации, отделяющая функциональное ядро от императивной обвязки.
+## 5. Кастомная коллекция
 
-### 1.5. Заполнение коллекции: провайдеры, стримы, кастомная коллекция
+`CustomArrayList<T>` — собственная реализация интерфейса `List<T>` на динамическом массиве `Object[]` с ростом ёмкости в 1,5 раза. Реализуются все ключевые операции (`add`, `get`, `set`, `remove`, `size`, `isEmpty`, `iterator`, `indexOf`, `contains`, `toArray`), причём поисковые методы (`indexOf`, `contains`) написаны вручную циклом — готовый поиск не используется. Реализация контракта `List` позволяет передавать коллекцию в стандартный Stream API (`stream()`, `Collectors.toCollection(CustomArrayList::new)`), чем закрывается требование «стримы + кастомные коллекции» (задания 3 и 3*), и при этом коллекция остаётся единственным контейнером данных во всём приложении.
 
-Заполнение реализовано как семейство поставщиков данных за функциональным интерфейсом `DataProvider<T>` с методом `provide(int size)`. Перечисление `FillMode` связывает пункт меню с конкретным поставщиком, возвращая его из метода `provider()` — по сути это фабрика, записанная в функциональном стиле. `RandomBusProvider` генерирует коллекцию целиком стримом: `Stream.generate(randomBusFactory).limit(size).collect(CustomCollectors.toCustomList())`, где фабрика — `Supplier<Bus>`, выдающий только валидные значения. `ManualBusProvider` в цикле по количеству элементов читает строки формата «номер;модель;пробег», прогоняет их через `BusLineParser` и в случае ошибок повторяет ввод, показывая пользователю все сообщения валидатора. `FileBusProvider` читает файл стримом `Files.lines`, отображает каждую строку парсером в `Parsed<Bus>` (функциональный аналог `Either`), валидные записи собирает в коллекцию, а невалидные пропускает с предупреждением в консоль; если валидных записей нет, выбрасывается исключение. Длина, указываемая пользователем, применяется к случайному и ручному режимам, а в файловом режиме определяется фактическим числом валидных строк.
+## 6. Валидация
 
-Ключевой момент дополнительного задания 3*: коллекция не является `ArrayList`. Пакет `collection` содержит `CustomArrayList<T>` — собственную реализацию интерфейса `List<T>` на динамически растущем массиве с самописным итератором (без наследования `AbstractList`), а также утилиту `CustomCollectors.toCustomList()`, возвращающую `Collector`, собранный из ссылок на методы `CustomArrayList::new` и `add`. Именно в эту коллекцию собираются все стримы приложения, включая внутреннюю работу сортировщика.
+Валидация построена функционально. Базовый блок — `Rule<T>`, функциональный интерфейс вида `Function<T, Optional<String>>`: правило принимает объект и возвращает `Optional` с текстом ошибки, если ограничение нарушено. `Validator<T>` — интерфейс с методом `validate(T): ValidationResult<T>`, снабжённый дефолтным комбинатором `and(Validator<T>)`, что позволяет собирать составные валидаторы композиций. `ValidationResult<T>` — иммутабельный носитель результата с фабриками `of(value)` и `failure(errors)` и методами `isValid()`, `errors()`, `value()` (монадический стиль без исключений в потоке управления).
 
-### 1.6. Timsort и паттерн Стратегия
+`BusValidator` собирается из списка правил: номер маршрута — целое в диапазоне 1–999; модель — непустая строка 2–30 символов по шаблону буквы/цифры/дефис/пробел; пробег — целое 0–2 000 000. Политика применения различается по источнику: при чтении из файла невалидные строки пропускаются с предупреждением в консоль (номер строки и причина); при ручном вводе система переспрашивает до корректного значения (с ограничением числа попыток); случайные данные генерируются в валидных границах, но для единообразия прогоняются через тот же валидатор.
 
-Ядро пакета `algorithm` — класс `TimSort` с единственной публичной чистой функцией `sort(List<T> source, Comparator<T> order): List<T>`: она копирует вход в рабочий массив, не мутирует оригинал и возвращает новый `CustomArrayList`. Реализация воспроизводит канонический алгоритм: вычисление `minRun` (значение из диапазона 32–64, приводящее длину к степени двойки с точностью до остатка), выделение естественных возрастающих серий с разворотом строго убывающих, достройку коротких серий бинарной сортировкой вставкой, стек серий с проверкой инвариантов `runLen[i-3] > runLen[i-2] + runLen[i-1]` и `runLen[i-2] > runLen[i-1]`, а также слияние `mergeLo`/`mergeHi` с режимом галопирования (`gallopLeft`, `gallopRight`) и временным буфером меньшей из серий. Стабильность гарантируется выбором стороны слияния.
+## 7. Кодек и форматы файлов
 
-Паттерн Стратегия выражен функционально: `SortStrategy<T>` — интерфейс с методом `sort(List<T>)`, а его реализации не образуют иерархии классов, а собираются фабрично. Полная сортировка по полю — это лямбда, частично применённая к `TimSort::sort` с нужным компаратором; компараторы, в свою очередь, строятся утилитой `ComparatorBuilder` (собственные комбинаторы `comparing`, `thenComparing`, `reversed`), а `BusComparators` даёт три базовых компаратора по всем полям. Перечисления `SortKey` (три поля), `SortDirection` (по возрастанию/убыванию) и `SortMode` (полная сортировка / только чётные) формируют декларативное описание запроса, а класс `SortingService` выступает контекстом стратегии: он единственным выражением собирает из выбранных параметров конкретную функцию сортировки и применяет её к коллекции. Так паттерн Стратегия соблюдён буквально (контекст, интерфейс, семейство взаимозаменяемых алгоритмов), но реализован через композицию функций, а не через наследование.
+`BusCodec` — чистый класс без состояния с методами `decode(String): Optional<Bus>` и `encode(Bus): String`. Формат строки — CSV с разделителем `;`: `routeNumber;model;mileage` (например, `42;ЛиАЗ-5292;150000`). `decode` выполняет структурную проверку (ровно три колонки) и разбор чисел с обработкой `NumberFormatException`, возвращая `Optional` вместо исключения; семантическую проверку выполняет `Validator` на уровне выше. Тот же кодек используется форматером при записи результатов, что даёт единственную точку определения формата (SRP, DRY).
 
-### 1.7. Режим «только чётные» (дополнительное задание 1)
+## 8. Источники данных (стратегии заполнения)
 
-Отдельная реализация `ParitySortStrategy` решает задачу частичной сортировки по числовому полю «номер маршрута». Алгоритм работает в три чистых шага: сначала через `IntStream` по индексам собираются позиции элементов, у которых ключ чётный; затем соответствующие элементы извлекаются в подсписок с сохранением исходного порядка и сортируются Timsort по натуральному порядку ключа; наконец, отсортированные значения раскладываются обратно по сохранённым индексам. Элементы с нечётным номером маршрута при этом гарантированно остаются на своих исходных позициях. Стратегия переиспользует тот же движок Timsort, что и полные сортировки, что и требуется формулировкой «эти же алгоритмы».
+`DataSource<T>` — интерфейс стратегии с методом `provide(int count): CustomList<T>`; пользователь явно выбирает вариант и длину. `RandomBusSource` генерирует данные через стримы: `ThreadLocalRandom` порождает потоки чисел, `Stream.generate`/`mapToObj` собирает автобусы со случайной моделью из пула, результат собирается через `Collectors.toCollection(CustomArrayList::new)`. `FileBusSource` читает файл стримом `Files.lines(path)`, пропускает шапку, декодирует строки кодеком, валидирует и берёт первые `count` валидных записей (если валидных меньше — сообщает об этом). `ManualBusSource` для каждого из `count` элементов читает три поля с консоли через абстракцию `ConsoleIO`, собирает объект билдером и в случае ошибки валидации повторяет ввод. Все три реализации завязаны только на интерфейсы `Validator` и `BusCodec`, полученные через конструктор.
 
-### 1.8. Запись результатов в файл (дополнительное задание 2)
+## 9. Слой сортировки
 
-Класс `ResultWriter` инкапсулирует дозапись: метод `appendAll(Path, List<Bus>, Function<Bus, String>)` открывает файл с флагами `CREATE` и `APPEND`, при создании файла пишет строку заголовка, после чего отображает каждый элемент переданным форматтером. Форматтер — это `BusFormatter.toCsv`, передаваемый в `ResultWriter` ссылкой на метод, что сохраняет функциональный стиль: модуль записи ничего не знает о домене, а домен ничего не знает о файлах. Повторные сохранения дополняют файл, а не перезаписывают его.
+`Sorter<T>` — интерфейс паттерна **Стратегия**: `List<T> sort(List<T> data, Comparator<T> comparator)`. Контракт принципиален для функционального стиля: метод **не мутирует вход**, а возвращает новый отсортированный список (чистая функция).
 
-### 1.9. Многопоточный подсчёт вхождений (дополнительное задание 4)
+`TimSorter<T>` — собственная реализация алгоритма Тима Питерса. Внутри вход копируется в рабочий массив, далее: вычисляется `minRunLength` (при размере менее `MIN_MERGE = 32` массив целиком обрабатывается одной бинарной вставкой; иначе minrun лежит в диапазоне 32–64 по старшим битам длины); слева направо выделяются монотонные серии (`countRunAndMakeAscending`, строго убывающие разворачиваются), короткие серии достраиваются до minrun бинарной сортировкой вставками (собственной, с собственным бинарным поиском позиции); пары `(base, length)` кладутся в стек иммутабельных записей `Run`; `mergeCollapse` поддерживает инварианты стека `len[i-2] > len[i-1]` и `len[i-3] > len[i-2] + len[i-1]`, сливая только соседние серии и выбирая сторону слива по размерам; слияние (`mergeLo`/`mergeHi`) копирует во временный буфер меньшую сторону; при `MIN_GALLOP = 7` побед подряд включается режим галопирования — `gallopLeft`/`gallopRight` (экспоненциальный поиск диапазона + бинарный поиск, реализовано вручную), порог адаптивно снижается при удачном галопе и растёт при неудачном; финальный `mergeForceCollapse` схлопывает стек, результат упаковывается в новый `CustomArrayList`. Стабильность гарантируется выбором элемента левой серии при равенстве — это важно, так как сортировки по разным полям должны быть предсказуемо стабильными.
 
-`OccurrenceCounter` реализует метод `countOccurrences(List<Bus> items, Bus target, int threads)`. Коллекция разбивается на `threads` непрерывных сегментов, для каждого создаётся `Callable<Long>`, подсчитывающий локальное число совпадений по `equals`; задачи отправляются в фиксированный пул через `invokeAll`, после чего частичные суммы сворачиваются редукцией `Long::sum`. Пул создаётся на время вызова и закрывается конструкцией try-with-resources, поэтому операция не оставляет «глобального» изменяемого состояния. Результат выводится в консоль вызывающим кодом.
+`ParitySorter<T>` — декоратор над `Sorter<T>`, закрывающий дополнительное задание 1. Конструктор принимает делегата и `ToLongFunction<T>` — экстрактор числового ключа (в приложении это номер маршрута). Алгоритм: зафиксировать индексы элементов с чётным ключом, извлечь их в отдельный список, отсортировать делегатом (тем же TimSort) по естественному порядку ключа, вписать обратно строго на прежние индексы; элементы с нечётным ключом не сдвигаются.
 
-### 1.10. Консольный интерфейс и главный цикл
+`BusComparators` — статический реестр `Map<BusField, Comparator<Bus>>`, построенный на `Comparator.comparing(...)` с `thenComparing` (компаратор разрешён заданием). Меню получает компаратор по ключу `BusField`, не зная деталей сравнения. Базовые сортировки по всем трём полям — это три значения реестра и три команды меню, использующие один и тот же `TimSorter`.
 
-Слой `ui` состоит из точки входа `Main`, исполнителя `ApplicationRunner` и меню `ConsoleMenu`. Меню построено декларативно: пункты хранятся в отображении «номер → `MenuAction`», где `MenuAction` — функциональный интерфейс, а сами пункты — лямбды, замыкающиеся на состояние исполнителя. `ApplicationRunner` — единственный владелец изменяемого состояния приложения (исходная коллекция, последний отсортированный результат, флаг `running`); он исполняет цикл `while (running)`, в котором рендерит меню, читает выбор и диспетчеризует действие. Выход из цикла возможен только тогда, когда лямбда пункта «Выход» снимает флаг `running`. Операции сортировки, показа, сохранения и подсчёта защищены guard-условием: при отсутствии заполненной коллекции пользователь получает предупреждение и возвращается в меню. Обёртка `UserInputReader` отвечает за валидированный ввод целых чисел в диапазоне, длин и путей к существующим файлам, конвертируя ошибки формата в понятные сообщения без падения цикла. Ошибки ввода-вывода файлов перехватываются на уровне исполнителя и также не прерывают работу программы.
+## 10. Запись результатов в файл
 
-### 1.11. Организация репозитория и стиль
+`ResultWriter<T>` — интерфейс с методом `appendAll(List<T> items)`; `FileResultWriter<T>` реализует его, открывая файл через `Files.write(..., CREATE, APPEND)` — режим добавления обязателен (задание 2). Форматирование элементов делегируется внедрённой функции `Function<T, String>` (по умолчанию — `BusCodec::encode`), перед блоком данных пишется строка-заголовок с меткой времени и признаком сортировки, поэтому повторные сохранения аккуратно накапливаются в одном файле `results.txt`.
 
-Репозиторий ведётся на GitHub/GitLab с ветвлением по числу участников; каждая ветка соответствует зоне ответственности и вливается в `main` через merge после ревью. Ожидаемый набор веток:
+## 11. Многопоточный подсчёт вхождений
 
-- `feature/domain-model` — `Bus`, `BusBuilder`, валидация;
-- `feature/timsort-engine` — движок Timsort и компараторы;
-- `feature/data-providers` — провайдеры, парсер, `CustomArrayList`;
-- `feature/console-ui` — меню, цикл, читатель ввода;
-- `feature/file-export` — дозапись результатов в файл;
-- `feature/concurrency` — многопоточный подсчёт вхождений.
+`OccurrenceCounter<T>` — интерфейс `long count(List<T> data, T target)`; `ParallelOccurrenceCounter<T>` разбивает коллекцию на чанки по `ceil(size / availableProcessors())`, каждый чанк отправляется через `CompletableFuture.supplyAsync` в собственный `ExecutorService` (пул создаётся в composition root и корректно закрывается при выходе). Подсчёт внутри чанка реализован вручную (сравнение через `equals` в цикле/редукции стрима — `Collections.frequency` не используется). Итог агрегируется как сумма частичных результатов, после чего выводится в консоль. Целевой элемент пользователь задаёт тем же ручным вводом, что и в источнике данных (билдер + валидатор), поэтому равенство считается по всем полям.
 
-Стиль кода следует конвенциям Java: имена пакетов в нижнем регистре, классы в `UpperCamelCase`, методы и поля в `lowerCamelCase`, константы в `UPPER_SNAKE_CASE`, отступ в четыре пробела, Javadoc на публичных API, объявление неизменяемых ссылок через `final` везде, где это осмысленно.
+## 12. Презентация и цикл приложения
+
+`ConsoleIO` — узкий интерфейс консоли (`readLine`, `print`, `printf`), отделяющий логику меню от `System.out`/`Scanner` (тестируемость, DIP). `Command` — функциональный интерфейс `void execute()`; `ConsoleMenu` хранит `Map<Integer, Command>` и в методе `run()` крутит цикл: печать меню, чтение выбора, исполнение команды, повтор — пока не выполнена команда «Выход» (единственный способ завершения, как требует задание). Мутируемое состояние сессии инкапсулировано в `Session`: текущая коллекция `Optional<CustomArrayList<Bus>>` и последний результат сортировки `Optional<List<Bus>>`. Пункты меню:
+
+1. Выход
+2. Заполнить коллекцию (подменю: из файла / случайно / вручную; затем длина)
+3. Показать текущую коллекцию
+4. Сортировать по номеру маршрута
+5. Сортировать по модели
+6. Сортировать по пробегу
+7. Паритетная сортировка по номеру маршрута
+8. Записать последний результат в файл (append)
+9. Подсчитать вхождения элемента (многопоточно)
+
+## 13. Композиция
+
+`Application.main` — единственное место, где создаются конкретные реализации: кодек, валидатор, сортировщики, компараторы, источники, писатель, счётчик, консоль, сессия и меню; команды регистрируются лямбдами и ссылками на методы (функциональное связывание). Это делает систему открытой к изменению конфигурации без правок остальных классов.
+
+## 14. Соответствие SOLID
+
+1. **SRP** — каждый класс имеет одну причину для изменения: `Bus` хранит данные, `BusCodec` переводит формат, `BusValidator` проверяет, `TimSorter` сортирует, `FileResultWriter` пишет, `ConsoleMenu` управляет диалогом, `ParallelOccurrenceCounter` считает.
+2. **OCP** — расширение новыми сортировками, источниками, полями и командами выполняется добавлением новой реализации стратегии или новой записи в реестр (`BusComparators`, карта команд) без модификации существующего кода.
+3. **LSP** — `ParitySorter` подставляем вместо любого `Sorter`, honouring контракт «не мутировать вход, уважать компаратор»; все реализации `DataSource` взаимозаменяемы; `CustomArrayList` выполняет полный контракт `List`.
+4. **ISP** — интерфейсы минимальны и ролевые: меню не знает о файлах, источники — о сортировках, счётчик — о меню; никто не зависит от «толстых» интерфейсов.
+5. **DIP** — все зависимости через абстракции (`Sorter`, `DataSource`, `Validator`, `ResultWriter`, `OccurrenceCounter`, `ConsoleIO`), конкретика внедряется в composition root.
+
+## 15. Функциональный стиль
+
+Ядро написано функционально в разумных пределах: иммутабельные `Bus`, `ValidationResult`, `Run`; чистые функции сортировки (возвращает новый список), валидации и кодирования; правила валидации как `Function<T, Optional<String>>`, свёртываемые стримом в агрегированный результат; высшие функции повсюду — `ParitySorter` принимает `ToLongFunction`, `FileResultWriter` — `Function<T,String>`, меню — лямбды `Command`; наполнение коллекций и подсчёт — через Stream API (`Files.lines`, `Stream.generate`, `IntStream.rangeClosed`, `Collectors.toCollection`); `Optional` вместо null и исключений в потоке управления. Осознанные отступления — «императивная оболочка»: внутренности TimSort (рабочие циклы и мутации массива — природа алгоритма), консольный ввод-вывод и цикл меню.
+
+## 16. Паттерны (все — собственная реализация)
+
+**Стратегия** реализована дважды: семейство `Sorter` (TimSort / паритетный вариант, плюс выбор компаратора как отдельная точка вариации) и семейство `DataSource` (файл / случайные / ручной ввод). **Builder** — ручной билдер `Bus`. **Декоратор** — `ParitySorter` над `Sorter`. **Реестр-фабрика** — `BusComparators` и карта команд меню. **Composition Root** — `Application`. Никакие библиотечные реализации паттернов не задействованы.
+
+## 17. Обработка ошибок
+
+Ошибки пользователя (некорректный пункт меню, неверный формат числа, невалидные данные) обрабатываются локально с повторным запросом и понятным сообщением; невалидные строки файла логируются и пропускаются; ошибки файловой системы при чтении перехватываются, сообщаются пользователю и возвращают его в меню без падения цикла; ошибки записи — аналогично. Исключения не покидают цикл приложения, выход — только через пункт «Выход».
+
+## 18. Тестирование
+
+JUnit 5 покрывает: `TimSorter` на пустых, одноэлементных, отсортированных, обратно отсортированных, «пилообразных» и случайных наборах с эталонной стабильной вставочной сортировкой как оракулом, плюс отдельные тесты стабильности и на дубликатах; `ParitySorter` на фиксации индексов нечётных элементов; `BusValidator` и `BusCodec` (в том числе round-trip); контракт `CustomArrayList`; `ParallelOccurrenceCounter` против последовательного подсчёта на больших коллекциях; билдер на неполной сборке.
+
+## 19. Git-процесс
+
+Репозиторий ведётся на GitHub/GitLab с защищённой веткой `main`. Каждый участник ведёт собственную ветку по своей зоне ответственности (например, `feature/timsort-core`, `feature/data-sources`, `feature/console-ui`, `feature/io-and-concurrency`), минимум по одной ветке на человека; изменения попадают в `main` только через merge/pull request с ревью; в итоге все ветки смержены в `main`. Кодстайл — согласно Java-конвенциям (проверяется в ревью).
 
 ---
 
-## Часть 2. UML-диаграммы
+# UML-диаграммы (Mermaid)
 
-### 2.1. Обзорная диаграмма слоёв (компонентное представление)
-
-```mermaid
-flowchart LR
-    subgraph ui ["Слой представления — пакет ui"]
-        Main["Main"]
-        Runner["ApplicationRunner<br/>(единственное изменяемое состояние)"]
-        Menu["ConsoleMenu + MenuAction"]
-    end
-
-    subgraph data ["Слой данных — пакеты data, collection"]
-        Providers["DataProvider<br/>Random / Manual / File"]
-        Parser["BusLineParser + Parsed"]
-        CustomList["CustomArrayList + CustomCollectors"]
-    end
-
-    subgraph domain ["Доменный слой — пакеты domain, validation"]
-        Bus["Bus + BusBuilder (Builder)"]
-        Validators["Validator + ValidationResult"]
-    end
-
-    subgraph algorithm ["Слой алгоритмов — пакет algorithm"]
-        Strategy["SortStrategy (Strategy)<br/>полные и чёт/нечёт"]
-        Engine["TimSort (собственная реализация)"]
-        Comparators["BusComparators, SortKey,<br/>SortDirection, SortMode"]
-    end
-
-    subgraph infra ["Инфраструктура — пакеты io, concurrent"]
-        Reader["UserInputReader"]
-        Writer["ResultWriter (append)"]
-        Counter["OccurrenceCounter (многопоточно)"]
-    end
-
-    Main --> Runner
-    Runner --> Menu
-    Runner --> Reader
-    Runner --> Providers
-    Runner --> Strategy
-    Runner --> Writer
-    Runner --> Counter
-    Providers --> Parser
-    Providers --> CustomList
-    Parser --> Bus
-    Bus --> Validators
-    Strategy --> Engine
-    Strategy --> Comparators
-    Comparators --> Bus
-    Engine --> CustomList
-    Writer --> Bus
-    Counter --> CustomList
-```
-
-### 2.2. Диаграмма классов — домен, валидация, данные, коллекция
+## 1. Компонентная диаграмма (пакеты и зависимости)
 
 ```mermaid
-classDiagram
-    direction TB
+graph TB
+    subgraph L1["app — презентация и композиция"]
+        APP[Application]
+        MENU[ConsoleMenu]
+        CMD[Command]
+        CIO[ConsoleIO]
+        SES[Session]
+    end
+    subgraph L2["source — источники данных (стратегии)"]
+        DS[DataSource]
+        RND[RandomBusSource]
+        FBS[FileBusSource]
+        MBS[ManualBusSource]
+    end
+    subgraph L3["sort — сортировки (стратегии)"]
+        SRT[Sorter]
+        TIM[TimSorter]
+        PAR[ParitySorter]
+        CMP[BusComparators]
+    end
+    subgraph L4["ядро — модель, коллекция, валидация"]
+        BUS[Bus + Builder]
+        BF[BusField]
+        CAL[CustomArrayList]
+        VAL[Validator / BusValidator]
+        VR[ValidationResult]
+    end
+    subgraph L5["периферия — io и многопоточность"]
+        WR[FileResultWriter]
+        OCC[ParallelOccurrenceCounter]
+        CDC[BusCodec]
+    end
 
-    namespace domain {
-        class Bus {
-            <<immutable>>
-            -int routeNumber
-            -String model
-            -long mileage
-            +routeNumber() int
-            +model() String
-            +mileage() long
-            +equals(Object other) boolean
-            +hashCode() int
-            +toString() String
-        }
-        class BusBuilder {
-            -int routeNumber
-            -String model
-            -long mileage
-            +routeNumber(int value) BusBuilder
-            +model(String value) BusBuilder
-            +mileage(long value) BusBuilder
-            +build() Bus
-        }
-    }
-
-    namespace validation {
-        class Validator~T~ {
-            <<functional interface>>
-            +validate(T value) ValidationResult
-            +and(Validator~T~ next) Validator~T~
-        }
-        class ValidationResult {
-            <<immutable>>
-            -List~String~ errors
-            +isValid() boolean
-            +errors() List~String~
-            +combine(ValidationResult other) ValidationResult
-            +valid() ValidationResult$
-            +invalid(String message) ValidationResult$
-        }
-        class BusValidators {
-            <<utility>>
-            +routeNumber() Validator~Integer~$
-            +model() Validator~String~$
-            +mileage() Validator~Long~$
-            +forBuilder() Validator~BusBuilder~$
-        }
-        class InvalidDataException {
-            -List~String~ errors
-            +errors() List~String~
-        }
-    }
-
-    namespace collection {
-        class CustomArrayList~T~ {
-            -Object[] elements
-            -int size
-            +add(T item) boolean
-            +get(int index) T
-            +set(int index, T item) T
-            +remove(int index) T
-            +size() int
-            +isEmpty() boolean
-            +iterator() Iterator~T~
-            +stream() Stream~T~
-        }
-        class CustomCollectors {
-            <<utility>>
-            +toCustomList() Collector$
-        }
-    }
-
-    namespace data {
-        class DataProvider~T~ {
-            <<functional interface>>
-            +provide(int size) List~T~
-        }
-        class RandomBusProvider {
-            -Supplier~Bus~ randomBusFactory
-            +provide(int size) List~Bus~
-        }
-        class ManualBusProvider {
-            +provide(int size) List~Bus~
-        }
-        class FileBusProvider {
-            -Path source
-            +provide(int size) List~Bus~
-        }
-        class BusLineParser {
-            -String SEPARATOR
-            +parse(String line) Parsed~Bus~
-        }
-        class Parsed~T~ {
-            <<immutable>>
-            +isValid() boolean
-            +value() Optional~T~
-            +errors() List~String~
-            +ok(T value) Parsed~T~$
-            +fail(List~String~ errors) Parsed~T~$
-        }
-        class FillMode {
-            <<enumeration>>
-            RANDOM
-            MANUAL
-            FILE
-            +provider(UserInputReader reader) DataProvider~Bus~
-        }
-    }
-
-    %% === СВЯЗИ (вынесены за пределы namespace) ===
-
-    %% Domain
-    Bus ..> BusBuilder : создаётся через build()
-
-    %% Validation
-    Validator ..> ValidationResult : возвращает
-    BusValidators ..> Validator : поставляет правила
-    InvalidDataException ..> ValidationResult : несёт ошибки
-
-    %% Collection
-    CustomCollectors ..> CustomArrayList : собирает стримы в
-
-    %% Data
-    DataProvider <|.. RandomBusProvider
-    DataProvider <|.. ManualBusProvider
-    DataProvider <|.. FileBusProvider
-    FillMode ..> DataProvider : выбирает реализацию
-    ManualBusProvider ..> BusLineParser
-    FileBusProvider ..> BusLineParser
-    BusLineParser ..> Parsed
-    BusLineParser ..> BusBuilder
-
-    %% Cross-namespace
-    BusBuilder ..> BusValidators : применяет в build()
-    BusBuilder ..> InvalidDataException : выбрасывает при ошибках
-    RandomBusProvider ..> Bus : строит через BusBuilder
-    RandomBusProvider ..> CustomCollectors
-    ManualBusProvider ..> CustomCollectors
-    FileBusProvider ..> CustomCollectors
+    APP --> MENU
+    MENU --> CMD
+    MENU --> CIO
+    MENU --> SES
+    MENU --> DS
+    MENU --> SRT
+    MENU --> WR
+    MENU --> OCC
+    RND --> DS
+    FBS --> DS
+    MBS --> DS
+    DS --> CDC
+    DS --> VAL
+    DS --> CAL
+    TIM --> SRT
+    PAR --> SRT
+    PAR --> TIM
+    CMP --> BF
+    SRT --> CAL
+    WR --> CDC
+    OCC --> CAL
+    VAL --> VR
+    VAL --> BUS
 ```
 
-### 2.3. Диаграмма классов — алгоритмы, инфраструктура, интерфейс
+## 2. Классы: модель и кастомная коллекция
 
 ```mermaid
 classDiagram
-    direction TB
-
-    namespace algorithm {
-        class SortStrategy~T~ {
-            <<functional interface>>
-            +sort(List~T~ source) List~T~
-        }
-        class TimSort {
-            <<utility>>
-            +sort(List~T~ source, Comparator~T~ order) List~T~$
-            -minRunLength(int n) int$
-            -countRunAndMakeAscending(a, lo, hi, cmp) int$
-            -binaryInsertionSort(a, lo, hi, cmp) void$
-            -pushRun(base, len) void$
-            -mergeCollapse() void$
-            -mergeAt(int i) void$
-            -mergeLo(base1, len1, base2, len2) void$
-            -mergeHi(base1, len1, base2, len2) void$
-            -gallopLeft(key, a, base, len, hint) int$
-            -gallopRight(key, a, base, len, hint) int$
-        }
-        class ComparatorBuilder {
-            <<utility>>
-            +comparing(Function key) Comparator$
-            +reversed(Comparator order) Comparator$
-            +thenComparing(Comparator first, Comparator second) Comparator$
-        }
-        class BusComparators {
-            <<utility>>
-            +byRouteNumber() Comparator~Bus~$
-            +byModel() Comparator~Bus~$
-            +byMileage() Comparator~Bus~$
-        }
-        class SortKey {
-            <<enumeration>>
-            ROUTE_NUMBER
-            MODEL
-            MILEAGE
-            +comparator() Comparator~Bus~
-        }
-        class SortDirection {
-            <<enumeration>>
-            ASCENDING
-            DESCENDING
-            +apply(Comparator order) Comparator
-        }
-        class SortMode {
-            <<enumeration>>
-            FULL
-            EVEN_ONLY
-        }
-        class ParitySortStrategy {
-            -ToIntFunction~Bus~ keyExtractor
-            +sort(List~Bus~ source) List~Bus~
-        }
-        class SortingService {
-            +sort(List~Bus~ source, SortKey key, SortDirection dir, SortMode mode) List~Bus~
-            -strategyFor(SortKey, SortDirection, SortMode) SortStrategy~Bus~
-        }
+    class Bus {
+        -routeNumber : int
+        -model : String
+        -mileage : long
+        +getRouteNumber() int
+        +getModel() String
+        +getMileage() long
+        +equals(Object) boolean
+        +hashCode() int
+        +toString() String
+    }
+    class BusBuilder {
+        -routeNumber : OptionalInt
+        -model : Optional
+        -mileage : OptionalLong
+        +routeNumber(int) BusBuilder
+        +model(String) BusBuilder
+        +mileage(long) BusBuilder
+        +build() Bus
+    }
+    class BusField {
+        <<enumeration>>
+        ROUTE_NUMBER
+        MODEL
+        MILEAGE
+    }
+    class CustomArrayList~T~ {
+        -elements : Object[]
+        -size : int
+        +add(T) boolean
+        +get(int) T
+        +set(int, T) T
+        +remove(int) T
+        +size() int
+        +iterator() Iterator~T~
+        +indexOf(Object) int
+        +contains(Object) boolean
+        +toArray() Object[]
     }
 
-    namespace io {
-        class UserInputReader {
-            -Scanner scanner
-            +readLine() String
-            +readInt(String prompt, int min, int max) int
-            +readLong(String prompt) long
-            +readExistingFilePath(String prompt) Path
-        }
-        class ResultWriter {
-            +appendAll(Path target, List~Bus~ items, Function formatter) void
-        }
-        class BusFormatter {
-            <<utility>>
-            +header() String$
-            +toCsv(Bus bus) String$
-        }
-    }
-
-    namespace concurrent {
-        class OccurrenceCounter {
-            +countOccurrences(List~Bus~ items, Bus target, int threads) long
-            -partition(List~Bus~ items, int parts) List
-            -countIn(List~Bus~ chunk, Bus target) long
-        }
-    }
-
-    namespace ui {
-        class Main {
-            +main(String[] args) void$
-        }
-        class ApplicationRunner {
-            -UserInputReader reader
-            -ConsoleMenu menu
-            -List~Bus~ sourceItems
-            -List~Bus~ sortedItems
-            -boolean running
-            +run() void
-            -onFill() void
-            -onSort() void
-            -onShow() void
-            -onSave() void
-            -onCount() void
-            -onExit() void
-        }
-        class ConsoleMenu {
-            -Map actions
-            +render() void
-            +dispatch(int choice) void
-            -registerDefaults() void
-        }
-        class MenuAction {
-            <<functional interface>>
-            +run() void
-        }
-    }
-
-    %% === СВЯЗИ (вынесены за пределы namespace) ===
-
-    %% Algorithm
-    SortStrategy <|.. ParitySortStrategy
-    SortingService ..> SortStrategy : контекст стратегии
-    SortingService ..> SortKey
-    SortingService ..> SortDirection
-    SortingService ..> SortMode
-    SortKey ..> BusComparators
-    BusComparators ..> ComparatorBuilder
-    ParitySortStrategy ..> TimSort
-    SortingService ..> TimSort
-
-    %% IO
-    ResultWriter ..> BusFormatter : использует форматтер
-
-    %% UI
-    Main ..> ApplicationRunner : запускает
-    ApplicationRunner ..> ConsoleMenu
-    ConsoleMenu ..> MenuAction : реестр лямбда-команд
-    ApplicationRunner ..> UserInputReader
-    ApplicationRunner ..> SortingService
-    ApplicationRunner ..> ResultWriter
-    ApplicationRunner ..> OccurrenceCounter
-    ApplicationRunner ..> FillMode
+    Bus *-- BusBuilder : вложенный Builder
+    List <|.. CustomArrayList
+    CustomArrayList ..> Bus : хранит
+    BusField ..> Bus : описывает поля
 ```
 
-### 2.4. Диаграмма состояний — жизненный цикл приложения
+## 3. Классы: валидация и кодек
+
+```mermaid
+classDiagram
+    class Validator~T~ {
+        <<interface>>
+        +validate(T) ValidationResult~T~
+        +and(Validator~T~) Validator~T~
+    }
+    class Rule~T~ {
+        <<interface>>
+        +apply(T) Optional~String~
+    }
+    class ValidationResult~T~ {
+        +isValid() boolean
+        +errors() List~String~
+        +value() Optional~T~
+        +of(T)$ ValidationResult~T~
+        +failure(List~String~)$ ValidationResult~T~
+    }
+    class BusValidator {
+        -rules : List of Rule Bus
+        +validate(Bus) ValidationResult~Bus~
+    }
+    class BusCodec {
+        +decode(String) Optional~Bus~
+        +encode(Bus) String
+    }
+
+    Validator <|.. BusValidator
+    BusValidator ..> Rule : свёртка правил
+    BusValidator ..> ValidationResult : создаёт
+    BusValidator ..> Bus : проверяет
+    BusCodec ..> Bus : создаёт/сериализует
+```
+
+## 4. Классы: слой сортировки
+
+```mermaid
+classDiagram
+    class Sorter~T~ {
+        <<interface>>
+        +sort(List~T~, Comparator~T~) List~T~
+    }
+    class TimSorter~T~ {
+        -MIN_MERGE$ : int
+        -MIN_GALLOP$ : int
+        -minGallop : int
+        -runStack : List~Run~
+        +sort(List~T~, Comparator~T~) List~T~
+        -minRunLength(int) int
+        -countRunAndMakeAscending(...) int
+        -binaryInsertionSort(...) void
+        -mergeCollapse() void
+        -mergeForceCollapse() void
+        -mergeAt(int) void
+        -mergeLo(...) void
+        -mergeHi(...) void
+        -gallopLeft(...) int
+        -gallopRight(...) int
+    }
+    class ParitySorter~T~ {
+        -delegate : Sorter~T~
+        -keyExtractor : ToLongFunction~T~
+        +sort(List~T~, Comparator~T~) List~T~
+    }
+    class Run {
+        <<record>>
+        +base : int
+        +length : int
+    }
+    class BusComparators {
+        -COMPARATORS$ : Map
+        +byField(BusField)$ Comparator~Bus~
+    }
+
+    Sorter <|.. TimSorter
+    Sorter <|.. ParitySorter
+    ParitySorter --> Sorter : делегирует (декоратор)
+    TimSorter *-- Run : стек серий
+    BusComparators ..> BusField : ключ реестра
+    BusComparators ..> Comparator : поставляет
+    TimSorter ..> Comparator : использует
+```
+
+## 5. Классы: источники, io, многопоточность, меню
+
+```mermaid
+classDiagram
+    class DataSource~T~ {
+        <<interface>>
+        +provide(int) CustomArrayList~T~
+    }
+    class RandomBusSource {
+        +provide(int) CustomArrayList~Bus~
+    }
+    class FileBusSource {
+        -path : Path
+        -codec : BusCodec
+        -validator : Validator~Bus~
+        +provide(int) CustomArrayList~Bus~
+    }
+    class ManualBusSource {
+        -console : ConsoleIO
+        -validator : Validator~Bus~
+        +provide(int) CustomArrayList~Bus~
+    }
+    class ResultWriter~T~ {
+        <<interface>>
+        +appendAll(List~T~) void
+    }
+    class FileResultWriter~T~ {
+        -path : Path
+        -formatter : Function
+        +appendAll(List~T~) void
+    }
+    class OccurrenceCounter~T~ {
+        <<interface>>
+        +count(List~T~, T) long
+    }
+    class ParallelOccurrenceCounter~T~ {
+        -executor : ExecutorService
+        +count(List~T~, T) long
+        -countChunk(List~T~, T) long
+    }
+    class ConsoleIO {
+        <<interface>>
+        +readLine() String
+        +print(String) void
+        +printf(String, Object...) void
+    }
+    class Command {
+        <<interface>>
+        +execute() void
+    }
+    class ConsoleMenu {
+        -commands : Map
+        -console : ConsoleIO
+        +register(int, Command) void
+        +run() void
+    }
+    class Session {
+        -current : Optional
+        -lastResult : Optional
+        +data() Optional
+        +result() Optional
+        +setData(CustomArrayList) void
+        +setResult(List) void
+    }
+    class Application {
+        +main(String[])$ void
+        -wire()$ ConsoleMenu
+    }
+
+    DataSource <|.. RandomBusSource
+    DataSource <|.. FileBusSource
+    DataSource <|.. ManualBusSource
+    FileBusSource --> BusCodec
+    FileBusSource --> Validator
+    ManualBusSource --> ConsoleIO
+    ResultWriter <|.. FileResultWriter
+    OccurrenceCounter <|.. ParallelOccurrenceCounter
+    ConsoleMenu --> Command : реестр команд
+    ConsoleMenu --> ConsoleIO
+    ConsoleMenu --> Session
+    Application ..> ConsoleMenu : создаёт и связывает
+```
+
+## 6. Диаграмма последовательности: основной сценарий сессии
+
+```mermaid
+sequenceDiagram
+    actor U as Пользователь
+    participant M as ConsoleMenu
+    participant S as FileBusSource
+    participant C as BusCodec
+    participant V as BusValidator
+    participant D as CustomArrayList
+    participant T as TimSorter
+    participant P as ParitySorter
+    participant W as FileResultWriter
+    participant O as ParallelOccurrenceCounter
+
+    U->>M: запуск приложения
+    loop до выбора «Выход»
+        M->>U: печать меню
+        U->>M: «заполнить из файла», N
+        activate S
+        S->>C: decode(строка)
+        C-->>S: Optional~Bus~
+        S->>V: validate(bus)
+        V-->>S: ValidationResult
+        S->>D: collect (stream, toCollection)
+        S-->>M: CustomArrayList~Bus~
+        deactivate S
+        U->>M: «сортировать по пробегу»
+        M->>T: sort(данные, comparator)
+        T-->>M: новый отсортированный список
+        M->>M: session.setResult(...)
+        U->>M: «паритетная сортировка»
+        M->>P: sort(данные, comparator)
+        P->>T: сортировка чётного подмножества
+        T-->>P: отсортированный подсписок
+        P-->>M: результат (нечётные на местах)
+        U->>M: «записать в файл»
+        M->>W: appendAll(результат)
+        W-->>M: OK (append)
+        U->>M: «подсчитать вхождения»
+        activate O
+        par чанк 1
+            O->>O: countChunk (поток 1)
+        and чанк 2
+            O->>O: countChunk (поток 2)
+        and чанк k
+            O->>O: countChunk (поток k)
+        end
+        O-->>M: сумма вхождений
+        deactivate O
+        M->>U: «найдено: K»
+    end
+    U->>M: «Выход»
+    M-->>U: завершение
+```
+
+## 7. Диаграмма состояний: цикл приложения
 
 ```mermaid
 stateDiagram-v2
-    [*] --> MainMenu : запуск приложения
-
-    MainMenu --> FillMenu : 1. Заполнить коллекцию
-    MainMenu --> SortMenu : 2. Сортировать [коллекция задана]
-    MainMenu --> ShowResult : 3. Показать коллекцию [коллекция задана]
-    MainMenu --> SaveResult : 4. Записать в файл [есть результат]
-    MainMenu --> CountMenu : 5. Подсчитать вхождения [коллекция задана]
-    MainMenu --> Terminated : 0. Выход
-    MainMenu --> MainMenu : некорректный выбор / guard не выполнен
-
-    FillMenu --> SourceSelect : выбор источника
-    SourceSelect --> RandomFill : «случайные значения»
-    SourceSelect --> ManualFill : «вручную»
-    SourceSelect --> FileFill : «из файла»
-    RandomFill --> MainMenu : коллекция создана стримом
-    ManualFill --> MainMenu : коллекция создана с валидацией ввода
-    FileFill --> MainMenu : валидные строки прочитаны
-
-    SortMenu --> KeySelect : выбор поля (номер / модель / пробег)
-    KeySelect --> DirectionSelect : по возрастанию / по убыванию
-    DirectionSelect --> ModeSelect : полная / только чётные
-    ModeSelect --> MainMenu : результат готов
-
-    ShowResult --> MainMenu
-    SaveResult --> MainMenu : файл дописан в режиме append
-    CountMenu --> MainMenu : результат выведен в консоль
-
-    Terminated --> [*] : флаг running снят
+    [*] --> ГлавноеМеню : запуск
+    ГлавноеМеню --> Заполнение : пункт «источник + длина»
+    Заполнение --> ВалидацияДанных : данные прочитаны
+    ВалидацияДанных --> Заполнение : ошибка → повтор ввода
+    ВалидацияДанных --> ГлавноеМеню : коллекция в сессии
+    ГлавноеМеню --> Сортировка : выбор поля / паритетная
+    Сортировка --> ГлавноеМеню : результат в сессии
+    ГлавноеМеню --> СохранениеВФайл : «записать»
+    СохранениеВФайл --> ГлавноеМеню : append выполнен / ошибка показана
+    ГлавноеМеню --> ПодсчётВхождений : «подсчитать»
+    ПодсчётВхождений --> ГлавноеМеню : результат в консоли
+    ГлавноеМеню --> [*] : пункт «Выход»
 ```
 
-### 2.5. Диаграмма последовательностей — основной сценарий
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant Runner as ApplicationRunner
-    participant Menu as ConsoleMenu
-    participant File as FileBusProvider
-    participant Parser as BusLineParser
-    participant Builder as BusBuilder
-    participant Service as SortingService
-    participant Engine as TimSort
-    participant Writer as ResultWriter
-
-    User->>Runner: запуск приложения
-    loop пока не выбран пункт Выход
-        Runner->>Menu: render()
-        Menu-->>User: пункты главного меню
-        User->>Runner: 1 - заполнить из файла
-        Runner->>File: provide(size)
-        File->>Parser: parse(42, ЛиАЗ-5256, 250000)
-        Parser->>Builder: routeNumber(42), model(ЛиАЗ-5256), mileage(250000), build()
-        Builder->>Builder: валидатор forBuilder - все правила
-        alt все правила пройдены
-            Builder-->>Parser: Bus(42, ЛиАЗ-5256, 250000)
-            Parser-->>File: Parsed.ok(bus)
-        else есть нарушения
-            Builder-->>Parser: InvalidDataException(errors)
-            Parser-->>File: Parsed.fail(errors)
-            File-->>User: предупреждение - строка пропущена
-        end
-        File-->>Runner: исходная коллекция CustomArrayList
-        User->>Runner: 2 - сортировать MODEL, ASCENDING, FULL
-        Runner->>Service: sort(source, MODEL, ASCENDING, FULL)
-        Service->>Service: strategyFor - композиция функций
-        Service->>Engine: sort(копия, byModel)
-        Engine-->>Service: новая отсортированная коллекция
-        Service-->>Runner: результат
-        Runner-->>User: вывод коллекции в консоль
-        User->>Runner: 4 - сохранить в файл
-        Runner->>Writer: appendAll(path, result, BusFormatter toCsv)
-        Writer->>Writer: Files.write(CREATE + APPEND)
-        Writer-->>Runner: успешно
-        Runner-->>User: результат дописан в файл
-    end
-    User->>Runner: 0 - выход
-    Runner-->>User: завершение работы
-```
-
-### 2.6. Диаграмма последовательностей — многопоточный подсчёт вхождений
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant Runner as ApplicationRunner
-    participant Reader as UserInputReader
-    participant Counter as OccurrenceCounter
-    participant Pool as ExecutorService
-    participant W1 as Worker 1
-    participant W2 as Worker 2
-    participant WN as Worker N
-
-    User->>Runner: 5 - подсчитать вхождения
-    Runner->>Reader: readInt(число потоков)
-    User-->>Reader: N
-    Runner->>Reader: ввод искомого элемента номер, модель, пробег
-    User-->>Reader: 42, ЛиАЗ-5256, 250000
-    Reader-->>Runner: Bus target (валидный)
-    Runner->>Counter: countOccurrences(source, target, N)
-    Counter->>Counter: partition(source, N) - разбиение на сегменты
-    par параллельные задачи
-        Counter->>Pool: submit(chunk-1)
-        Pool->>W1: call()
-        W1->>W1: подсчёт совпадений по equals
-        W1-->>Pool: локальная сумма c1
-    and
-        Counter->>Pool: submit(chunk-2)
-        Pool->>W2: call()
-        W2->>W2: подсчёт совпадений по equals
-        W2-->>Pool: локальная сумма c2
-    and
-        Counter->>Pool: submit(chunk-N)
-        Pool->>WN: call()
-        WN-->>Pool: локальная сумма cN
-    end
-    Counter->>Counter: total = c1 + c2 + ... + cN (редукция)
-    Counter-->>Runner: total
-    Runner-->>User: Элемент встречается total раз(а)
-```
-
-### 2.7. Диаграмма деятельности — алгоритм Timsort
+## 8. Activity-диаграмма: TimSorter.sort
 
 ```mermaid
 flowchart TD
-    Start(["sort(список, компаратор) — вход не изменяется"]) --> Copy["Скопировать элементы в рабочий массив"]
-    Copy --> MinRun["Вычислить minRun: значение 32–64,<br/>дающее n по модулю близкое к степени двойки"]
-    MinRun --> Loop{"Остались<br/>нераспределённые элементы?"}
-    Loop -- "да" --> Run["Выделить очередной run;<br/>строго убывающий — развернуть"]
-    Run --> Short{"len(run) &lt; minRun?"}
-    Short -- "да" --> Insert["Дополнить run до minRun<br/>бинарной сортировкой вставкой"]
-    Short -- "нет" --> Push["Поместить run в стек серий"]
-    Insert --> Push
-    Push --> Collapse{"Нарушены инварианты стека?<br/>runLen[i-3] &gt; runLen[i-2] + runLen[i-1]<br/>или runLen[i-2] &gt; runLen[i-1]"}
-    Collapse -- "да" --> Merge["Слить вершины стека<br/>mergeLo / mergeHi + галопирование<br/>gallopLeft / gallopRight"]
-    Merge --> Collapse
-    Collapse -- "нет" --> Loop
-    Loop -- "нет" --> Final["Слить все оставшиеся run'ы<br/>до единственного отсортированного"]
-    Final --> Result(["Вернуть новый CustomArrayList"])
+    A[Вход: список + компаратор] --> B{"size < 2 ?"}
+    B -- да --> Z[вернуть копию входа]
+    B -- нет --> C[скопировать элементы в рабочий массив]
+    C --> D["minRun = minRunLength(n), n < 32 → сразу вставка"]
+    D --> E{остались элементы?}
+    E -- нет --> J[mergeForceCollapse: свернуть стек серий]
+    E -- да --> F[найти монотонную серию, убывающую развернуть]
+    F --> G{"длина серии < minRun ?"}
+    G -- да --> H[достроить серию binaryInsertionSort]
+    G -- нет --> I
+    H --> I[pushRun: положить Run в стек]
+    I --> K["mergeCollapse: инварианты len i-2 > len i-1, len i-3 > len i-2 + len i-1"]
+    K --> E
+    J --> L[сборка нового CustomArrayList из массива]
+    L --> M[вернуть новый отсортированный список]
 ```
 
-### 2.8. Диаграмма деятельности — стратегия «чётные по натуральному порядку»
+## 9. Activity-диаграмма: ParitySorter.sort (задание 1)
 
 ```mermaid
 flowchart TD
-    Start(["sortEvenOnly(список, числовой ключ = номер маршрута)"]) --> Idx["IntStream по индексам:<br/>собрать позиции, где ключ элемента чётный"]
-    Idx --> Extract["Извлечь подсписок элементов с чётным ключом<br/>с сохранением исходного порядка"]
-    Extract --> Sort["TimSort подсписка<br/>по натуральному порядку ключа (возрастание)"]
-    Sort --> Place["Разложить отсортированные элементы<br/>обратно по сохранённым индексам"]
-    Place --> Note["Элементы с нечётным ключом<br/>остаются на исходных позициях"]
-    Note --> Result(["Готовая коллекция — новая копия"])
+    A[Вход: список, делегат, экстрактор ключа] --> B[вычислить ключ для каждого элемента]
+    B --> C[зафиксировать индексы элементов с чётным ключом]
+    C --> D[извлечь чётные элементы в отдельный список]
+    D --> E["делегат.sort(подсписок, порядок по ключу) — тот же TimSort"]
+    E --> F[вписать отсортированные элементы на сохранённые индексы]
+    F --> G[нечётные элементы остались на исходных позициях]
+    G --> H[вернуть новый список]
 ```
 
 ---
 
-Описанная архитектура закрывает все пункты задания: собственный Timsort с компараторами по трём полям, паттерны Builder и Strategy, три способа валидируемого заполнения (стримами, в кастомную коллекцию), частичная сортировка чётных, дозапись результатов в файл и многопоточный подсчёт вхождений — при этом функциональный стиль проведён последовательно во всех чистых слоях и сознательно ограничен там, где задание требует императивных конструкций (главный цикл, консольный ввод-вывод, пул потоков).
+Замечание по использованию: все диаграммы написаны на Mermaid и рендерятся напрямую в Markdown (GitHub/GitLab отображают их автоматически), поэтому их удобно держать в `README.md` или `docs/architecture.md` репозитория — это же станет естественной точкой отчётности по архитектуре при защите проекта.
