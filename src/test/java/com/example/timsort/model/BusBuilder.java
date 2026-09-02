@@ -10,11 +10,11 @@ class BusBuilderTest {
   private static final String MODEL = "LiAZ-5256";
   private static final long MILEAGE = 250000L;
 
-  // === Successful build ===
+  // === Успешная сборка ===
 
   @Test
   void when_allFieldsSet_then_buildReturnsValidBus() {
-    Bus bus = new BusBuilder()
+    Bus bus = Bus.builder()
                   .routeNumber(ROUTE_NUMBER)
                   .model(MODEL)
                   .mileage(MILEAGE)
@@ -26,37 +26,37 @@ class BusBuilderTest {
     assertEquals(MILEAGE, bus.mileage());
   }
 
-  // === Parameter validation in setters ===
+  // === Validation parameters in setters ===
 
   @Test
   void when_routeNumberNegative_then_throwsIllegalArgumentException() {
-    BusBuilder builder = new BusBuilder();
+    Bus.BusBuilder builder = Bus.builder();
     assertThrows(IllegalArgumentException.class, () -> builder.routeNumber(-1));
   }
 
   @Test
   void when_modelNull_then_throwsIllegalArgumentException() {
-    BusBuilder builder = new BusBuilder();
+    Bus.BusBuilder builder = Bus.builder();
     assertThrows(IllegalArgumentException.class, () -> builder.model(null));
   }
 
   @Test
   void when_modelBlank_then_throwsIllegalArgumentException() {
-    BusBuilder builder = new BusBuilder();
+    Bus.BusBuilder builder = Bus.builder();
     assertThrows(IllegalArgumentException.class, () -> builder.model("   "));
   }
 
   @Test
   void when_mileageNegative_then_throwsIllegalArgumentException() {
-    BusBuilder builder = new BusBuilder();
+    Bus.BusBuilder builder = Bus.builder();
     assertThrows(IllegalArgumentException.class, () -> builder.mileage(-1L));
   }
 
-  // === Missing fields ===
+  // === Missed fields ===
 
   @Test
   void when_routeNumberNotSet_then_buildThrowsIllegalStateException() {
-    BusBuilder builder = new BusBuilder().model(MODEL).mileage(MILEAGE);
+    Bus.BusBuilder builder = Bus.builder().model(MODEL).mileage(MILEAGE);
 
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, builder::build);
@@ -68,8 +68,8 @@ class BusBuilderTest {
 
   @Test
   void when_modelNotSet_then_buildThrowsIllegalStateException() {
-    BusBuilder builder =
-        new BusBuilder().routeNumber(ROUTE_NUMBER).mileage(MILEAGE);
+    Bus.BusBuilder builder =
+        Bus.builder().routeNumber(ROUTE_NUMBER).mileage(MILEAGE);
 
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, builder::build);
@@ -81,8 +81,8 @@ class BusBuilderTest {
 
   @Test
   void when_mileageNotSet_then_buildThrowsIllegalStateException() {
-    BusBuilder builder =
-        new BusBuilder().routeNumber(ROUTE_NUMBER).model(MODEL);
+    Bus.BusBuilder builder =
+        Bus.builder().routeNumber(ROUTE_NUMBER).model(MODEL);
 
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, builder::build);
@@ -94,7 +94,7 @@ class BusBuilderTest {
 
   @Test
   void when_noFieldsSet_then_buildThrowsIllegalStateException() {
-    BusBuilder builder = new BusBuilder();
+    Bus.BusBuilder builder = Bus.builder();
 
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, builder::build);
@@ -107,8 +107,7 @@ class BusBuilderTest {
 
   @Test
   void when_multipleFieldsMissing_then_messageContainsAllMissingFields() {
-
-    BusBuilder builder = new BusBuilder().model(MODEL);
+    Bus.BusBuilder builder = Bus.builder().model(MODEL);
 
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, builder::build);
@@ -123,7 +122,7 @@ class BusBuilderTest {
 
   @Test
   void when_fieldSetTwice_then_lastValueWins() {
-    Bus bus = new BusBuilder()
+    Bus bus = Bus.builder()
                   .routeNumber(10)
                   .model("Old model")
                   .mileage(100L)
@@ -141,11 +140,11 @@ class BusBuilderTest {
 
   @Test
   void when_chainMethods_then_returnsSameBuilderInstance() {
-    BusBuilder builder = new BusBuilder();
+    Bus.BusBuilder builder = Bus.builder();
 
-    BusBuilder afterRoute = builder.routeNumber(ROUTE_NUMBER);
-    BusBuilder afterModel = afterRoute.model(MODEL);
-    BusBuilder afterMileage = afterModel.mileage(MILEAGE);
+    Bus.BusBuilder afterRoute = builder.routeNumber(ROUTE_NUMBER);
+    Bus.BusBuilder afterModel = afterRoute.model(MODEL);
+    Bus.BusBuilder afterMileage = afterModel.mileage(MILEAGE);
 
     assertSame(builder, afterRoute);
     assertSame(builder, afterModel);
@@ -154,10 +153,8 @@ class BusBuilderTest {
 
   @Test
   void when_buildCalledTwice_then_returnsDifferentInstances() {
-    BusBuilder builder = new BusBuilder()
-                             .routeNumber(ROUTE_NUMBER)
-                             .model(MODEL)
-                             .mileage(MILEAGE);
+    Bus.BusBuilder builder =
+        Bus.builder().routeNumber(ROUTE_NUMBER).model(MODEL).mileage(MILEAGE);
 
     Bus first = builder.build();
     Bus second = builder.build();
@@ -165,5 +162,14 @@ class BusBuilderTest {
     assertNotSame(first, second);
     assertEquals(first, second);
     assertEquals(first.hashCode(), second.hashCode());
+  }
+
+  @Test
+  void when_builderCalledMultipleTimes_then_returnsNewBuilderInstance() {
+    Bus.BusBuilder builder1 = Bus.builder();
+    Bus.BusBuilder builder2 = Bus.builder();
+
+    assertNotSame(builder1, builder2,
+                  "Each call to builder() must create a new instance");
   }
 }
