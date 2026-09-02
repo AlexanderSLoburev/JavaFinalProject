@@ -10,6 +10,32 @@ class BusTest {
   private static final String MODEL = "ЛиАЗ-5256";
   private static final long MILEAGE = 250000L;
 
+  // === Construction and validation ===
+
+  @Test
+  void when_routeNumberIsNegative_then_throwsIllegalArgumentException() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> new Bus(-1, MODEL, MILEAGE));
+  }
+
+  @Test
+  void when_modelIsNull_then_throwsIllegalArgumentException() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> new Bus(ROUTE_NUMBER, null, MILEAGE));
+  }
+
+  @Test
+  void when_modelIsBlank_then_throwsIllegalArgumentException() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> new Bus(ROUTE_NUMBER, "   ", MILEAGE));
+  }
+
+  @Test
+  void when_mileageIsNegative_then_throwsIllegalArgumentException() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> new Bus(ROUTE_NUMBER, MODEL, -1L));
+  }
+
   // === equals ===
 
   @Test
@@ -74,7 +100,6 @@ class BusTest {
     Bus second = new Bus(ROUTE_NUMBER, MODEL, MILEAGE);
     Bus third = new Bus(99, MODEL, MILEAGE);
 
-    // consistency: same result on multiple calls
     assertTrue(first.equals(second));
     assertTrue(first.equals(second));
     assertTrue(first.equals(second));
@@ -90,7 +115,6 @@ class BusTest {
     Bus second = new Bus(ROUTE_NUMBER, MODEL, MILEAGE);
     Bus third = new Bus(ROUTE_NUMBER, MODEL, MILEAGE);
 
-    // transitivity: if first == second and second == third, then first == third
     assertTrue(first.equals(second));
     assertTrue(second.equals(third));
     assertTrue(first.equals(third));
@@ -109,14 +133,10 @@ class BusTest {
   // === toString ===
 
   @Test
-  void when_callToString_then_containsAllFields() {
+  void when_callToString_then_returnsExactExpectedString() {
     Bus bus = new Bus(42, "ЛиАЗ-5256", 250000L);
 
-    String result = bus.toString();
-
-    assertTrue(result.contains("42"), "toString should contain routeNumber");
-    assertTrue(result.contains("ЛиАЗ-5256"), "toString should contain model");
-    assertTrue(result.contains("250000"), "toString should contain mileage");
+    assertEquals("Bus{42, ЛиАЗ-5256, 250000}", bus.toString());
   }
 
   // === Getters ===
