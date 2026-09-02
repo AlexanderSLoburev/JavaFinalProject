@@ -20,13 +20,39 @@ class BusBuilderTest {
                   .mileage(MILEAGE)
                   .build();
 
-    assertNotNull(bus, "build() should return a non-null Bus");
+    assertNotNull(bus);
     assertEquals(ROUTE_NUMBER, bus.routeNumber());
     assertEquals(MODEL, bus.model());
     assertEquals(MILEAGE, bus.mileage());
   }
 
-  // === Missing fields should throw IllegalStateException ===
+  // === Parameter validation in setters ===
+
+  @Test
+  void when_routeNumberNegative_then_throwsIllegalArgumentException() {
+    BusBuilder builder = new BusBuilder();
+    assertThrows(IllegalArgumentException.class, () -> builder.routeNumber(-1));
+  }
+
+  @Test
+  void when_modelNull_then_throwsIllegalArgumentException() {
+    BusBuilder builder = new BusBuilder();
+    assertThrows(IllegalArgumentException.class, () -> builder.model(null));
+  }
+
+  @Test
+  void when_modelBlank_then_throwsIllegalArgumentException() {
+    BusBuilder builder = new BusBuilder();
+    assertThrows(IllegalArgumentException.class, () -> builder.model("   "));
+  }
+
+  @Test
+  void when_mileageNegative_then_throwsIllegalArgumentException() {
+    BusBuilder builder = new BusBuilder();
+    assertThrows(IllegalArgumentException.class, () -> builder.mileage(-1L));
+  }
+
+  // === Missing fields ===
 
   @Test
   void when_routeNumberNotSet_then_buildThrowsIllegalStateException() {
@@ -35,8 +61,9 @@ class BusBuilderTest {
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, builder::build);
 
-    assertTrue(exception.getMessage().contains("routeNumber"),
-               "Exception message should mention the missing field");
+    assertTrue(exception.getMessage().contains("routeNumber"));
+    assertFalse(exception.getMessage().contains("model"));
+    assertFalse(exception.getMessage().contains("mileage"));
   }
 
   @Test
@@ -47,8 +74,9 @@ class BusBuilderTest {
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, builder::build);
 
-    assertTrue(exception.getMessage().contains("model"),
-               "Exception message should mention the missing field");
+    assertTrue(exception.getMessage().contains("model"));
+    assertFalse(exception.getMessage().contains("routeNumber"));
+    assertFalse(exception.getMessage().contains("mileage"));
   }
 
   @Test
@@ -59,8 +87,9 @@ class BusBuilderTest {
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, builder::build);
 
-    assertTrue(exception.getMessage().contains("mileage"),
-               "Exception message should mention the missing field");
+    assertTrue(exception.getMessage().contains("mileage"));
+    assertFalse(exception.getMessage().contains("routeNumber"));
+    assertFalse(exception.getMessage().contains("model"));
   }
 
   @Test
@@ -70,11 +99,45 @@ class BusBuilderTest {
     IllegalStateException exception =
         assertThrows(IllegalStateException.class, builder::build);
 
-    assertNotNull(exception.getMessage(),
-                  "Exception message should not be null");
+    assertNotNull(exception.getMessage());
+    assertTrue(exception.getMessage().contains("routeNumber"));
+    assertTrue(exception.getMessage().contains("model"));
+    assertTrue(exception.getMessage().contains("mileage"));
   }
 
-  // === Fluent API behavior ===
+  @Test
+  void when_multipleFieldsMissing_then_messageContainsAllMissingFields() {
+
+    BusBuilder builder = new BusBuilder().model(MODEL);
+
+    IllegalStateException exception =
+        assertThrows(IllegalStateException.class, builder::build);
+
+    String message = exception.getMessage();
+    assertTrue(message.contains("routeNumber"));
+    assertTrue(message.contains("mileage"));
+    assertFalse(message.contains("model"));
+  }
+
+  // === Field redefinition ===
+
+  @Test
+  void when_fieldSetTwice_then_lastValueWins() {
+    Bus bus = new BusBuilder()
+                  .routeNumber(10)
+                  .model("Old model")
+                  .mileage(100L)
+                  .routeNumber(ROUTE_NUMBER)
+                  .model(MODEL)
+                  .mileage(MILEAGE)
+                  .build();
+
+    assertEquals(ROUTE_NUMBER, bus.routeNumber());
+    assertEquals(MODEL, bus.model());
+    assertEquals(MILEAGE, bus.mileage());
+  }
+
+  // === Fluent API ===
 
   @Test
   void when_chainMethods_then_returnsSameBuilderInstance() {
@@ -84,10 +147,9 @@ class BusBuilderTest {
     BusBuilder afterModel = afterRoute.model(MODEL);
     BusBuilder afterMileage = afterModel.mileage(MILEAGE);
 
-    // Each setter must return the SAME instance (fluent interface)
-    assertSame(builder, afterRoute, "routeNumber() should return 'this'");
-    assertSame(builder, afterModel, "model() should return 'this'");
-    assertSame(builder, afterMileage, "mileage() should return 'this'");
+    assertSame(builder, afterRoute);
+    assertSame(builder, afterModel);
+    assertSame(builder, afterMileage);
   }
 
   @Test
@@ -100,13 +162,8 @@ class BusBuilderTest {
     Bus first = builder.build();
     Bus second = builder.build();
 
-    // Different object references
-    assertNotSame(first, second,
-                  "Each build() call should create a new instance");
-
-    // But logically equal because fields are the same
-    assertEquals(first, second, "Both buses should be equal by values");
-    assertEquals(first.hashCode(), second.hashCode(),
-                 "Equal buses must have the same hashCode");
+    assertNotSame(first, second);
+    assertEquals(first, second);
+    assertEquals(first.hashCode(), second.hashCode());
   }
 }
