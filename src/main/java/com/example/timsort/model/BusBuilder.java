@@ -41,13 +41,15 @@ public class BusBuilder {
       missing.append("routeNumber");
     }
     if (!modelSet) {
-      if (missing.length() > 0)
+      if (missing.length() > 0) {
         missing.append(", ");
+      }
       missing.append("model");
     }
     if (!mileageSet) {
-      if (missing.length() > 0)
+      if (missing.length() > 0) {
         missing.append(", ");
+      }
       missing.append("mileage");
     }
     if (missing.length() > 0) {
