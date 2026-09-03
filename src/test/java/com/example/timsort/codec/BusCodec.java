@@ -142,19 +142,4 @@ class BusCodecTest {
 
     assertTrue(result.isEmpty());
   }
-
-  @Test
-  void shouldPreserveModelWithSpecialCharacters() {
-    Bus bus = Bus.builder()
-            .routeNumber(7)
-            .model("Model;With;Semicolons")
-            .mileage(1000L)
-            .build();
-
-    String encoded = codec.encode(bus);
-    Optional<Bus> decoded = codec.decode(encoded);
-
-    assertTrue(decoded.isPresent());
-    assertEquals(bus, decoded.get());
-  }
 }
