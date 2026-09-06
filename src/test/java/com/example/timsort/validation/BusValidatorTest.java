@@ -158,4 +158,19 @@ class BusValidatorTest {
         assertTrue(resultMin.isValid(), "Минимальные допустимые значения должны проходить");
         assertTrue(resultMax.isValid(), "Максимальные допустимые значения должны проходить");
     }
+
+    @Test
+    void when_validateNull_then_returnsFailure() {
+        // Arrange
+        BusValidator validator = new BusValidator();
+
+        // Act
+        ValidationResult<Bus> result = validator.validate(null);
+
+        // Assert
+        assertFalse(result.isValid(), "Null объект должен быть отклонён");
+        assertTrue(result.errors().stream()
+                        .anyMatch(error -> error.contains("null")),
+                "Ошибка должна упоминать null");
+    }
 }

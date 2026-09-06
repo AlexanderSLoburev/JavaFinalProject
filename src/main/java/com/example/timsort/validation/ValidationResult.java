@@ -45,6 +45,9 @@ public final class ValidationResult<T> {
      * @return ValidationResult с ошибками
      */
     public static <T> ValidationResult<T> failure(List<String> errors) {
+        if (errors == null || errors.isEmpty()) {
+            throw new IllegalArgumentException("failure требует непустой список ошибок");
+        }
         return new ValidationResult<>(Optional.empty(), List.copyOf(errors));
     }
 

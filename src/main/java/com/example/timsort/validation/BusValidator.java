@@ -14,6 +14,13 @@ import java.util.stream.Collectors;
  */
 public class BusValidator implements Validator<Bus> {
 
+    private static final int MIN_ROUTE_NUMBER = 1;
+    private static final int MAX_ROUTE_NUMBER = 999;
+    private static final int MIN_MODEL_LENGTH = 2;
+    private static final int MAX_MODEL_LENGTH = 30;
+    private static final String MODEL_PATTERN = "[а-яА-Яa-zA-Z0-9\\-\\s]+";
+    private static final long MIN_MILEAGE = 0;
+    private static final long MAX_MILEAGE = 2_000_000;
     private final List<Rule<Bus>> rules;
 
     /**
@@ -35,16 +42,15 @@ public class BusValidator implements Validator<Bus> {
      */
     @Override
     public ValidationResult<Bus> validate(Bus bus) {
-        List<String> errors = rules.stream()
-                .map(rule -> rule.apply(bus))           // Применяем каждое правило
-                .filter(Optional::isPresent)            // Оставляем только ошибки
-                .map(Optional::get)                     // Извлекаем текст ошибки
-                .collect(Collectors.toList());          // Собираем в список
-
-        if (errors.isEmpty()) {
-            return ValidationResult.of(bus);
+        if (bus == null) {
+            return ValidationResult.failure(List.of("Объект Bus не задан (null)"));
         }
-        return ValidationResult.failure(errors);
+        List<String> errors = rules.stream()
+                .flatMap(rule -> rule.apply(bus).stream())
+                .toList();
+        return errors.isEmpty()
+                ? ValidationResult.of(bus)
+                : ValidationResult.failure(errors);
     }
 
     /**
@@ -53,9 +59,10 @@ public class BusValidator implements Validator<Bus> {
     private Rule<Bus> routeNumberRule() {
         return bus -> {
             int route = bus.routeNumber();
-            if (route < 1 || route > 999) {
+            if (route < MIN_ROUTE_NUMBER || route > MAX_ROUTE_NUMBER) {
                 return Optional.of(
-                        "Номер маршрута должен быть от 1 до 999, текущее значение: " + route);
+                        "Номер маршрута должен быть от " + MIN_ROUTE_NUMBER +
+                                " до " + MAX_ROUTE_NUMBER + ", текущее значение: " + route);
             }
             return Optional.empty();
         };
@@ -71,11 +78,12 @@ public class BusValidator implements Validator<Bus> {
             if (model == null || model.trim().isEmpty()) {
                 return Optional.of("Модель не может быть пустой");
             }
-            if (model.length() < 2 || model.length() > 30) {
+            if (model.length() < MIN_MODEL_LENGTH || model.length() > MAX_MODEL_LENGTH) {
                 return Optional.of(
-                        "Модель должна содержать от 2 до 30 символов, текущая длина: " + model.length());
+                        "Модель должна содержать от " + MIN_MODEL_LENGTH +
+                                " до " + MAX_MODEL_LENGTH + " символов, текущая длина: " + model.length());
             }
-            if (!model.matches("[а-яА-Яa-zA-Z0-9\\-\\s]+")) {
+            if (!model.matches(MODEL_PATTERN)) {
                 return Optional.of(
                         "Модель может содержать только буквы, цифры, дефис и пробелы");
             }
@@ -89,9 +97,10 @@ public class BusValidator implements Validator<Bus> {
     private Rule<Bus> mileageRule() {
         return bus -> {
             long mileage = bus.mileage();
-            if (mileage < 0 || mileage > 2_000_000) {
+            if (mileage < MIN_MILEAGE || mileage > MAX_MILEAGE) {
                 return Optional.of(
-                        "Пробег должен быть от 0 до 2 000 000, текущее значение: " + mileage);
+                        "Пробег должен быть от " + MIN_MILEAGE +
+                                " до " + MAX_MILEAGE + ", текущее значение: " + mileage);
             }
             return Optional.empty();
         };
