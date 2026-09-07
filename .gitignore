@@ -5,4 +5,5 @@ target/
 *.iml
 *.iws
 *.ipr
-.gigacode/
+.gigacode
+
