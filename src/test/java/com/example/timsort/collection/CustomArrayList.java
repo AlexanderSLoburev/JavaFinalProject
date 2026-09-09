@@ -1332,14 +1332,10 @@ class CustomArrayListTest {
     }
 
     @Test
-    void when_subListToStringCalled_then_reportsOffsetSizeAndElements() {
+    void when_subListToStringCalled_then_rendersOnlyViewElements() {
       CustomArrayList<Bus> root = listOfBuses(1, 2, 3);
       List<Bus> sub = root.subList(1, 3);
-      String text = sub.toString();
-      assertTrue(text.contains("offset=1"));
-      assertTrue(text.contains("size=2"));
-      assertTrue(text.contains(bus(2).toString()));
-      assertTrue(text.contains(bus(3).toString()));
+      assertEquals("[" + bus(2) + ", " + bus(3) + "]", sub.toString());
     }
 
     @Test
@@ -1694,17 +1690,13 @@ class CustomArrayListTest {
 
     @Test
     void when_toStringOfEmptyList_then_canonicalFormat() {
-      assertEquals("CustomArrayList{size=0, data=[]}",
-                   new CustomArrayList<Bus>().toString());
+      assertEquals("[]", new CustomArrayList<Bus>().toString());
     }
 
     @Test
-    void when_toStringWithElements_then_containsBusRendering() {
+    void when_toStringWithElements_then_rendersElementsInCanonicalFormat() {
       CustomArrayList<Bus> list = listOfBuses(1, 2);
-      String text = list.toString();
-      assertTrue(text.contains("size=2"));
-      assertTrue(text.contains(bus(1).toString()));
-      assertTrue(text.contains(bus(2).toString()));
+      assertEquals("[" + bus(1) + ", " + bus(2) + "]", list.toString());
     }
 
     @Test
