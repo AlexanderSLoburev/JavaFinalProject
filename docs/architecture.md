@@ -10,7 +10,153 @@
 
 ## 2. Слои и направление зависимостей
 
-Приложение делится на пять слоёв. Слой презентации (`app`) содержит точку входа, меню-цикл и абстракцию консоли. Слой источников данных (`source`) отвечает за наполнение коллекции тремя способами. Ядро (`model`, `collection`, `validation`, `sort`) содержит доменную модель, кастомную коллекцию, валидацию и сортировки. Периферия (`io`, `concurrent`) занимается записью в файл и многопоточным подсчётом. Все зависимости направлены от периферии к ядру и только через интерфейсы; конкретные реализации связываются в единственной точке — классе `Application` (composition root, ручное внедрение зависимостей через конструкторы). Ни один класс ядра не знает о существовании консоли, файлов или меню.
+Приложение разделено на пять логических слоёв, каждый из которых объединяет пакеты с единой зоной ответственности. Такое разделение обеспечивает слабую связанность и позволяет изменять реализацию одного слоя, не затрагивая другие.
+
+### Слой презентации и композиции (`app`)
+
+Содержит точку входа `Application`, цикл меню `ConsoleMenu`, интерфейс `Command` для команд, абстракцию консоли `ConsoleIO` и хранилище состояния сессии `Session`. Этот слой не реализует бизнес-логику, а лишь организует взаимодействие пользователя с ядром и периферией через интерфейсы. Метод `main` является composition root — единственным местом в приложении, где создаются конкретные реализации всех зависимостей и связываются между собой через конструкторы; все остальные классы получают зависимости извне и не знают, кто и как их создал.
+
+### Слой источников данных (`source`)
+
+Отвечает за наполнение коллекции данными тремя способами: случайная генерация, чтение из файла, ручной ввод. Основная абстракция — интерфейс стратегии `DataSource<T>` с методом `provide(int count)`. Конкретные реализации (`RandomBusSource`, `FileBusSource`, `ManualBusSource`) зависят только от абстракций ядра: `Validator`, `BusCodec`, `CustomArrayList`, а также от `ConsoleIO` для ручного ввода.
+
+### Ядро (пакеты `model`, `collection`, `validation`, `sort`)
+
+Ядро содержит доменную модель `Bus` с билдером, кастомную коллекцию `CustomArrayList`, систему валидации (`Validator`, `Rule`, `ValidationResult`, `BusValidator`) и алгоритмы сортировки (`Sorter`, `TimSorter`, `ParitySorter`, `TimParitySorter`, `BusComparators`). Все классы ядра иммутабельны или предоставляют чистые функции. Они не знают о существовании консоли, файлов, меню или потоков выполнения. Зависимости внутри ядра направлены от более конкретных классов к абстракциям (например, `TimSorter` зависит от `Comparator`, но не наоборот).
+
+### Периферия: ввод-вывод (`io`)
+
+Пакет `io` содержит интерфейс `ResultWriter<T>` и его файловую реализацию `FileResultWriter<T>`, которая умеет добавлять отсортированные коллекции в файл. `FileResultWriter` зависит только от `Function<T, String>` для форматирования (обычно `BusCodec::encode`) и от пути к файлу. Он не зависит от конкретных классов домена или сортировки.
+
+### Периферия: многопоточность (`concurrent`)
+
+Пакет `concurrent` содержит интерфейс `OccurrenceCounter<T>` и реализацию `ParallelOccurrenceCounter<T>`, выполняющую подсчёт вхождений элемента в коллекцию параллельно. Класс получает `ExecutorService` через конструктор (внедряется из composition root) и работает с любым `List<T>`, не зная о его происхождении. Зависимость направлена только к стандартным коллекциям и `equals`.
+
+### Направление зависимостей
+
+Общее правило: **все зависимости направлены от внешних слоёв к ядру**. Ядро не имеет исходящих зависимостей к периферии. Слой `app` является самым внешним: он знает о всех интерфейсах и конкретных реализациях (только в composition root), но конкретные классы остальных слоёв не знают о `app`. Периферийные пакеты (`io`, `concurrent`) зависят от ядра только через стандартные интерфейсы (`List`, `Function`), а не от конкретных классов домена.
+
+#### Типы зависимостей
+
+Когда один класс напрямую использует другой класс в своём коде (импортирует его, вызывает его методы, создаёт его экземпляры через new), это называется **зависимостью на уровне импорта**. Класс знает о существовании другого класса и не может без него работать. Например:
+
+```java
+// FileBusSource напрямую использует BusCodec и Validator
+import codec.BusCodec;
+import validation.Validator;
+
+public class FileBusSource implements DataSource<Bus> {
+    private final BusCodec codec;       // знает о BusCodec
+    private final Validator<Bus> validator; // знает о Validator
+
+    public CustomArrayList<Bus> provide(int count) {
+        // ... вызывает codec.decode(...), validator.validate(...)
+    }
+}
+```
+
+Внедрение через конструктор (Dependency Injection) — второй тип зависимостей, используемых в проекте. Вместо того чтобы класс сам создавал свои зависимости через `new`, мы передаём их снаружи через конструктор. Класс по-прежнему использует зависимость, но уже не отвечает за её создание. Например:
+
+```java
+public class ConsoleMenu {
+    private final DataSource<Bus> source; // знает только об интерфейсе
+
+    // Зависимость передаётся извне через конструктор
+    public ConsoleMenu(DataSource<Bus> source) {
+        this.source = source;
+    }
+
+    public void run() {
+        source.provide(10);
+    }
+}
+```
+
+`ConsoleMenu` не знает, какая именно реализация `DataSource` будет использована — файловая, случайная или ручная. Это решает тот, кто создаёт `ConsoleMenu`.
+
+На диаграмме ниже показаны слои как группы пакетов и стрелки зависимостей между ними. Сплошные стрелки обозначают зависимость на уровне исходного кода (import), пунктирные — внедрение зависимостей через конструкторы в composition root (реализуется только в `app`).
+
+```mermaid
+graph TB
+    subgraph APP["Слой app — презентация и композиция"]
+        direction TB
+        Application["Application (composition root)"]
+        ConsoleMenu["ConsoleMenu"]
+        ConsoleIO["ConsoleIO (интерфейс)"]
+        Command["Command (интерфейс)"]
+        Session["Session"]
+    end
+
+    subgraph SRC["Слой source — источники данных"]
+        direction TB
+        DataSource["DataSource&lt;T&gt; (интерфейс)"]
+        RandomBusSource["RandomBusSource"]
+        FileBusSource["FileBusSource"]
+        ManualBusSource["ManualBusSource"]
+    end
+
+    subgraph CORE["Ядро"]
+        direction TB
+        subgraph MODEL["model"]
+            Bus["Bus + Builder"]
+            BusField["BusField"]
+        end
+        subgraph COLLECTION["collection"]
+            CustomArrayList["CustomArrayList&lt;T&gt;"]
+        end
+        subgraph VALIDATION["validation"]
+            Validator["Validator&lt;T&gt;"]
+            Rule["Rule&lt;T&gt;"]
+            ValidationResult["ValidationResult&lt;T&gt;"]
+            BusValidator["BusValidator"]
+        end
+        subgraph SORT["sort"]
+            Sorter["Sorter&lt;T&gt;"]
+            TimSorter["TimSorter&lt;T&gt;"]
+            ParitySorter["ParitySorter&lt;T&gt;"]
+            TimParitySorter["TimParitySorter&lt;T&gt;"]
+            BusComparators["BusComparators"]
+        end
+        subgraph CODEC["codec"]
+            BusCodec["BusCodec"]
+        end
+    end
+
+    subgraph PERIPH_IO["Слой io — запись результатов"]
+        ResultWriter["ResultWriter&lt;T&gt; (интерфейс)"]
+        FileResultWriter["FileResultWriter&lt;T&gt;"]
+    end
+
+    subgraph PERIPH_CONC["Слой concurrent — многопоточный подсчёт"]
+        OccurrenceCounter["OccurrenceCounter&lt;T&gt; (интерфейс)"]
+        ParallelOccurrenceCounter["ParallelOccurrenceCounter&lt;T&gt;"]
+    end
+
+    %% === ПУНКТИРНЫЕ: внедрение зависимостей через конструкторы (только из app) ===
+    APP -.->|внедряет DataSource| SRC
+    APP -.->|внедряет Sorter, Validator| CORE
+    APP -.->|внедряет ResultWriter| PERIPH_IO
+    APP -.->|внедряет OccurrenceCounter| PERIPH_CONC
+
+    %% === СПЛОШНЫЕ: зависимости на уровне исходного кода (import) ===
+    SRC -->|использует Bus, Builder| MODEL
+    SRC -->|наполняет CustomArrayList| COLLECTION
+    SRC -->|использует Validator| VALIDATION
+    SRC -->|использует для декодирования| CODEC
+
+    PERIPH_IO -->|использует для форматирования| CODEC
+
+    %% === Внутренние зависимости (реализация зависит от интерфейса) ===
+    PERIPH_IO -->|реализует| ResultWriter
+    PERIPH_CONC -->|реализует| OccurrenceCounter
+
+    style CORE fill:#f9f0e6,stroke:#333
+    style APP fill:#e6f3f9,stroke:#333
+    style SRC fill:#e6f9e6,stroke:#333
+    style PERIPH_IO fill:#f9e6f0,stroke:#333
+    style PERIPH_CONC fill:#f0e6f9,stroke:#333
+```
+
 
 ## 3. Пакетная структура
 
