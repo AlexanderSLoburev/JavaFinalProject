@@ -556,15 +556,6 @@ public class CustomArrayList<T>
     /**
      * Validates the specified index for access operations
      * (get, set, remove). The index must be non-negative and
-     * strictly less than the list size.
-     *
-     * @param index the index to validate
-     * @throws IndexOutOfBoundsException if the index is negative
-     *     or greater than or equal to the list size
-     */
-    /**
-     * Validates the specified index for access operations
-     * (get, set, remove). The index must be non-negative and
      * strictly less than {@code size}.
      *
      * @param index the index to validate
@@ -578,15 +569,6 @@ public class CustomArrayList<T>
       }
     }
 
-    /**
-     * Validates the specified index for add operations. The index
-     * must be non-negative and at most the list size
-     * ({@code index == size} is allowed for appending).
-     *
-     * @param index the index to validate
-     * @throws IndexOutOfBoundsException if the index is negative
-     *     or greater than the list size
-     */
     /**
      * Validates the specified index for add operations. The index
      * must be non-negative and at most {@code size}
@@ -944,6 +926,14 @@ public class CustomArrayList<T>
       }
     }
 
+    /**
+     * Performs the given action for each element of this sublist,
+     * in the order elements are iterated, until all elements have
+     * been processed or the action throws an exception.
+     *
+     * @param action the action to perform on each element
+     * @throws NullPointerException if {@code action} is {@code null}
+     */
     @Override
     @SuppressWarnings("unchecked")
     public void forEach(Consumer<? super T> action) {
@@ -1536,6 +1526,7 @@ public class CustomArrayList<T>
    *    the identity check is kept because it documents the intent.
    *
    * @param survives decides, per element, whether it stays in the list
+   * @return {@code true} if the list was modified by this operation
    */
   private boolean retainMatching(Predicate<Object> survives) {
     final int expectedModCount = modCount;
@@ -1884,6 +1875,14 @@ public class CustomArrayList<T>
    * List.copyOf, whose implementations reject null elements; this variant
    * keeps nulls and is backed by a private CustomArrayList wrapped in an
    * unmodifiable view.
+   *
+   * @param <T> the element type
+   * @param collection the collection whose elements are to be placed
+   *     into the list
+   * @return an unmodifiable list containing the elements of the given
+   *     collection
+   * @throws NullPointerException if the specified collection is
+   *     {@code null}
    */
   public static <T> List<T>
   immutableCopyOf(Collection<? extends T> collection) {
@@ -1975,6 +1974,14 @@ public class CustomArrayList<T>
     }
   }
 
+  /**
+   * Returns the element at the specified position in this list.
+   *
+   * @param index index of the element to return
+   * @return the element at the specified position
+   * @throws IndexOutOfBoundsException if the index is out of
+   *     range {@code (index < 0 || index >= size)}
+   */
   @Override
   @SuppressWarnings("unchecked")
   public synchronized T get(int index) {
