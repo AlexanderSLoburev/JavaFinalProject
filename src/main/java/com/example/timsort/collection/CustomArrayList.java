@@ -556,15 +556,6 @@ public class CustomArrayList<T>
     /**
      * Validates the specified index for access operations
      * (get, set, remove). The index must be non-negative and
-     * strictly less than the list size.
-     *
-     * @param index the index to validate
-     * @throws IndexOutOfBoundsException if the index is negative
-     *     or greater than or equal to the list size
-     */
-    /**
-     * Validates the specified index for access operations
-     * (get, set, remove). The index must be non-negative and
      * strictly less than {@code size}.
      *
      * @param index the index to validate
@@ -578,15 +569,6 @@ public class CustomArrayList<T>
       }
     }
 
-    /**
-     * Validates the specified index for add operations. The index
-     * must be non-negative and at most the list size
-     * ({@code index == size} is allowed for appending).
-     *
-     * @param index the index to validate
-     * @throws IndexOutOfBoundsException if the index is negative
-     *     or greater than the list size
-     */
     /**
      * Validates the specified index for add operations. The index
      * must be non-negative and at most {@code size}
@@ -944,6 +926,14 @@ public class CustomArrayList<T>
       }
     }
 
+    /**
+     * Performs the given action for each element of this sublist,
+     * in the order elements are iterated, until all elements have
+     * been processed or the action throws an exception.
+     *
+     * @param action the action to perform on each element
+     * @throws NullPointerException if {@code action} is {@code null}
+     */
     @Override
     @SuppressWarnings("unchecked")
     public void forEach(Consumer<? super T> action) {
@@ -1536,6 +1526,7 @@ public class CustomArrayList<T>
    *    the identity check is kept because it documents the intent.
    *
    * @param survives decides, per element, whether it stays in the list
+   * @return {@code true} if the list was modified by this operation
    */
   private boolean retainMatching(Predicate<Object> survives) {
     final int expectedModCount = modCount;
@@ -1631,6 +1622,17 @@ public class CustomArrayList<T>
                                           ", toIndex: " + toIndex +
                                           ", Size: " + size);
     }
+  }
+
+  /**
+   * Builds the bounds-violation exception for {@code copyRange} with all
+   * argument values, in the style of {@code checkIndexForAccess}.
+   */
+  private IndexOutOfBoundsException
+  copyRangeBoundsError(int srcIndex, int destIndex, int length) {
+    return new IndexOutOfBoundsException(
+        "srcIndex: " + srcIndex + ", destIndex: " + destIndex +
+        ", length: " + length + ", size: " + size);
   }
 
   /**
@@ -1877,6 +1879,106 @@ public class CustomArrayList<T>
   }
 
   /**
+   * Copies {@code length} elements of {@code source}, starting at
+   * {@code srcIndex}, onto this list's range starting at
+   * {@code destIndex} — the list-level analogue of
+   * {@code System.arraycopy(src, srcPos, dest, destPos, length)} with
+   * this list as the destination.
+   *
+   * The destination range must already exist: the method never changes
+   * the list's size and never grows the backing array. Every copy behaves
+   * as if the source range were first copied into a temporary array: when
+   * {@code source} is this list (or a live view of it), overlapping ranges
+   * shift correctly in both directions.
+   *
+   * Overwriting and reordering elements is observable by live iterators
+   * and views, so a copy that may change content bumps the modification
+   * count; a zero-length copy and a self-copy onto
+   * the identical range are no-ops and leave it untouched.
+   *
+   * @param source the list to copy from; may be this list itself
+   * @param srcIndex the starting index (inclusive) of the source range
+   * @param destIndex the starting index (inclusive) of the destination
+   *     range in this list
+   * @param length the number of elements to copy
+   * @throws NullPointerException if {@code source} is {@code null}
+   * @throws IndexOutOfBoundsException if an index is negative, or the
+   *     source or destination range extends beyond the respective list's
+   *     size
+   * @throws ConcurrentModificationException if the source snapshot code
+   *     re-enters and structurally modifies this list
+   */
+  public synchronized void copyRange(List<? extends T> source, int srcIndex,
+                                     int destIndex, int length) {
+    Objects.requireNonNull(source);
+
+    if (srcIndex < 0 || destIndex < 0 || length < 0) {
+      throw copyRangeBoundsError(srcIndex, destIndex, length);
+    }
+
+    if (destIndex > size - length) {
+      throw copyRangeBoundsError(srcIndex, destIndex, length);
+    }
+
+    if (source == this) {
+      if (srcIndex > size - length) {
+        throw copyRangeBoundsError(srcIndex, destIndex, length);
+      }
+
+      if (length > 0 && srcIndex != destIndex) {
+        System.arraycopy(data, srcIndex, data, destIndex, length);
+        ++modCount;
+      }
+      return;
+    }
+
+    // Foreign source: snapshot its range first, then write.
+    if (srcIndex > Integer.MAX_VALUE - length) {
+      throw copyRangeBoundsError(srcIndex, destIndex, length);
+    }
+
+    final int expectedModCount = modCount;
+    // Why a snapshot: a live iteration of
+    // the source would race with our own writes when the source is a
+    // view of this very list — reading back slots we have just
+    // overwritten.
+    Object[] snapshot = source.subList(srcIndex, srcIndex + length).toArray();
+
+    if (snapshot.length != length) {
+      // The source changed between subList() and toArray() (or is not a
+      // well-behaved List): the payload no longer matches the promised
+      // range — refuse to write it.
+      throw new ConcurrentModificationException();
+    }
+
+    if (modCount != expectedModCount) {
+      throw new ConcurrentModificationException();
+    }
+
+    if (length > 0) {
+      System.arraycopy(snapshot, 0, data, destIndex, length);
+      ++modCount;
+    }
+  }
+
+  /**
+   * Copies {@code length} elements of this list from the range starting
+   * at {@code srcIndex} onto the range starting at {@code destIndex}.
+   * Convenience overload of
+   * {@link #copyRange(List, int, int, int) copyRange(this, ...)}.
+   *
+   * @param srcIndex the starting index (inclusive) of the source range
+   * @param destIndex the starting index (inclusive) of the destination
+   *     range
+   * @param length the number of elements to copy
+   * @throws IndexOutOfBoundsException if an index is negative, or the
+   *     source or destination range extends beyond this list's size
+   */
+  public synchronized void copyRange(int srcIndex, int destIndex, int length) {
+    copyRange(this, srcIndex, destIndex, length);
+  }
+
+  /**
    * Returns an unmodifiable list containing the elements of the given
    * collection in its iteration order.
    *
@@ -1884,6 +1986,14 @@ public class CustomArrayList<T>
    * List.copyOf, whose implementations reject null elements; this variant
    * keeps nulls and is backed by a private CustomArrayList wrapped in an
    * unmodifiable view.
+   *
+   * @param <T> the element type
+   * @param collection the collection whose elements are to be placed
+   *     into the list
+   * @return an unmodifiable list containing the elements of the given
+   *     collection
+   * @throws NullPointerException if the specified collection is
+   *     {@code null}
    */
   public static <T> List<T>
   immutableCopyOf(Collection<? extends T> collection) {
@@ -1975,6 +2085,14 @@ public class CustomArrayList<T>
     }
   }
 
+  /**
+   * Returns the element at the specified position in this list.
+   *
+   * @param index index of the element to return
+   * @return the element at the specified position
+   * @throws IndexOutOfBoundsException if the index is out of
+   *     range {@code (index < 0 || index >= size)}
+   */
   @Override
   @SuppressWarnings("unchecked")
   public synchronized T get(int index) {
