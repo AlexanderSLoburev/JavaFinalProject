@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Тесты для {@link FileResultWriter}.
  */
 class FileResultWriterTest {
-
+ 
     @TempDir
     Path tempDir;
 

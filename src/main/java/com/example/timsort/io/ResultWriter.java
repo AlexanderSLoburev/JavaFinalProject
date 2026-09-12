@@ -14,7 +14,7 @@ import java.util.List;
  * @param <T> тип записываемых элементов
  */
 public interface ResultWriter<T> {
-
+ 
     /**
      * Записывает переданные элементы, добавляя их к уже
      * существующим данным (режим APPEND).
