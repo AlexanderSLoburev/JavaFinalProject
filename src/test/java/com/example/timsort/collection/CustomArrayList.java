@@ -20,10 +20,12 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.AbstractList;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.ConcurrentModificationException;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -31,6 +33,8 @@ import java.util.ListIterator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Queue;
+import java.util.Random;
+import java.util.Set;
 import java.util.Spliterator;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -2331,6 +2335,482 @@ class CustomArrayListTest {
       } finally {
         pool.shutdownNow();
       }
+    }
+  }
+
+  @Nested
+  class CustomArrayListCopyRangeTest {
+
+    /**
+     * A distinct Bus per route number. Equal route numbers produce equal
+     * buses (value equality), so expected lists can be written compactly.
+     */
+    private static Bus bus(int routeNumber) {
+      return Bus.builder()
+          .routeNumber(routeNumber)
+          .model("model-" + routeNumber)
+          .mileage(routeNumber * 100L)
+          .build();
+    }
+
+    private static CustomArrayList<Bus> busList(int... routeNumbers) {
+      return new CustomArrayList<>(buses(routeNumbers));
+    }
+
+    private static List<Bus> buses(int... routeNumbers) {
+      List<Bus> result = new ArrayList<>();
+      for (int routeNumber : routeNumbers) {
+        result.add(bus(routeNumber));
+      }
+      return result;
+    }
+
+    // ------------------------------------------------------------------
+    // Self-copy semantics (the System.arraycopy overlap guarantee)
+    // ------------------------------------------------------------------
+
+    @Test
+    void
+    when_selfCopyShiftsRangeLeft_then_behavesAsIfCopiedThroughTempBuffer() {
+      CustomArrayList<Bus> list = busList(1, 2, 3, 4, 5);
+
+      list.copyRange(1, 0, 4); // as System.arraycopy(data, 1, data, 0, 4)
+
+      assertEquals(buses(2, 3, 4, 5, 5), list);
+    }
+
+    @Test
+    void
+    when_selfCopyShiftsRangeRight_then_behavesAsIfCopiedThroughTempBuffer() {
+      CustomArrayList<Bus> list = busList(1, 2, 3, 4, 5);
+
+      list.copyRange(0, 1, 4); // as System.arraycopy(data, 0, data, 1, 4)
+
+      assertEquals(buses(1, 1, 2, 3, 4), list);
+    }
+
+    @Test
+    void when_selfCopyDisjointRanges_then_sourceElementsDuplicated() {
+      CustomArrayList<Bus> list = busList(1, 2, 3, 4, 5, 6, 7);
+
+      list.copyRange(0, 4, 3);
+
+      assertEquals(buses(1, 2, 3, 4, 1, 2, 3), list);
+    }
+
+    @Test
+    void when_selfCopyRangesOverlapAtEdge_then_onlyDestinationRangeReplaced() {
+      CustomArrayList<Bus> list = busList(10, 20, 30, 40, 50, 60);
+
+      list.copyRange(2, 4, 2); // src [30, 40] onto dest [50, 60]
+
+      assertEquals(buses(10, 20, 30, 40, 30, 40), list);
+    }
+
+    @Test
+    void when_selfCopyOntoIdenticalRange_then_noOpAndIteratorStaysValid() {
+      CustomArrayList<Bus> list = busList(1, 2, 3);
+      Iterator<Bus> it = list.iterator();
+      assertEquals(bus(1), it.next());
+
+      list.copyRange(0, 0, 3); // identity copy: nothing observable changes
+      list.copyRange(2, 2, 0); // zero length: no-op
+
+      assertEquals(bus(2), it.next());
+      assertEquals(bus(3), it.next());
+    }
+
+    @Test
+    void when_elementsAreCopied_then_referencesAreSharedNotCloned() {
+      Bus first = bus(1);
+      Bus second = bus(2);
+      CustomArrayList<Bus> list = new CustomArrayList<>();
+      list.add(first);
+      list.add(second);
+      list.add(bus(3));
+
+      list.copyRange(0, 1, 2); // [first, first, second]
+
+      assertSame(first, list.get(0));
+      assertSame(first, list.get(1)); // the copy shares the source instance
+      assertSame(second, list.get(2));
+    }
+
+    // ------------------------------------------------------------------
+    // Foreign sources
+    // ------------------------------------------------------------------
+
+    @Test
+    void
+    when_copyFromForeignList_then_destinationRangeOverwrittenInSourceOrder() {
+      CustomArrayList<Bus> target = busList(1, 2, 3, 4);
+
+      target.copyRange(Arrays.asList(bus(10), bus(20), bus(30)), 0, 1, 3);
+
+      assertEquals(buses(1, 10, 20, 30), target);
+    }
+
+    @Test
+    void
+    when_copyFromAnotherCustomArrayList_then_targetUpdatedAndSourceUntouched() {
+      CustomArrayList<Bus> source = busList(7, 8, 9);
+      CustomArrayList<Bus> target = busList(1, 2, 3, 4);
+
+      target.copyRange(source, 1, 1, 2);
+
+      assertEquals(buses(1, 8, 9, 4), target);
+      assertEquals(buses(7, 8, 9), source);
+    }
+
+    @Test
+    void when_targetPassedAsSourceExplicitly_then_overlapHandledLikeSelfCopy() {
+      CustomArrayList<Bus> list = busList(1, 2, 3, 4, 5);
+
+      list.copyRange(list, 1, 0, 4);
+
+      assertEquals(buses(2, 3, 4, 5, 5), list);
+    }
+
+    @Test
+    void
+    when_sourceIsSubViewOfTarget_then_snapshotPreventsReadAfterWriteCorruption() {
+      CustomArrayList<Bus> list = busList(1, 2, 3, 4, 5);
+      List<Bus> view = list.subList(0, 3);
+
+      list.copyRange(view, 0, 1, 2); // naive live iteration would read
+                                     // already-written slots back
+
+      assertEquals(buses(1, 1, 2, 4, 5), list);
+    }
+
+    @Test
+    void when_sourceIsNull_then_nullPointerException() {
+      CustomArrayList<Bus> list = busList(1, 2, 3);
+
+      assertThrows(NullPointerException.class,
+                   () -> list.copyRange(null, 0, 0, 2));
+    }
+
+    // ------------------------------------------------------------------
+    // No-ops, boundary positions, special values
+    // ------------------------------------------------------------------
+
+    @Test
+    void when_lengthIsZero_then_noOpAndBoundaryPositionsAllowed() {
+      CustomArrayList<Bus> list = busList(1, 2, 3);
+
+      list.copyRange(3, 3, 0); // srcIndex == destIndex == size: legal, as in
+                               // System.arraycopy
+      list.copyRange(0, 3, 0);
+      list.copyRange(List.of(bus(7)), 1, 0, 0); // foreign source: position ==
+                                                // source size is legal
+
+      assertEquals(buses(1, 2, 3), list);
+    }
+
+    @Test
+    void
+    when_zeroLengthButPositionBeyondBounds_then_indexOutOfBoundsException() {
+      CustomArrayList<Bus> list = busList(1, 2, 3);
+
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> list.copyRange(4, 0, 0)); // self: srcPos > size
+      assertThrows(IndexOutOfBoundsException.class,
+                   ()
+                       -> list.copyRange(Arrays.asList(bus(9), bus(9)), 3, 0,
+                                         0)); // beyond source size
+
+      assertEquals(buses(1, 2, 3), list);
+    }
+
+    @Test
+    void when_nullElementsPresent_then_copiedVerbatim() {
+      CustomArrayList<Bus> list = new CustomArrayList<>();
+      list.add(bus(1));
+      list.add(null);
+      list.add(bus(3));
+      list.add(null);
+
+      list.copyRange(0, 2, 2);
+
+      assertEquals(Arrays.asList(bus(1), null, bus(1), null), list);
+    }
+
+    @Test
+    void when_threeArgOverloadUsed_then_resultMatchesExplicitSelfCopy() {
+      CustomArrayList<Bus> viaOverload = busList(1, 2, 3, 4, 5);
+      CustomArrayList<Bus> viaExplicit = busList(1, 2, 3, 4, 5);
+
+      viaOverload.copyRange(1, 0, 4);
+      viaExplicit.copyRange(viaExplicit, 1, 0, 4);
+
+      assertEquals(viaOverload, viaExplicit);
+    }
+
+    // ------------------------------------------------------------------
+    // Bounds validation
+    // ------------------------------------------------------------------
+
+    @Test
+    void
+    when_sourceRangeExceedsListSize_then_indexOutOfBoundsExceptionAndListUntouched() {
+      CustomArrayList<Bus> list = busList(1, 2, 3, 4, 5);
+
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> list.copyRange(3, 0, 3));
+
+      assertEquals(buses(1, 2, 3, 4, 5), list);
+    }
+
+    @Test
+    void
+    when_destinationRangeExceedsListSize_then_indexOutOfBoundsExceptionAndListUntouched() {
+      CustomArrayList<Bus> list = busList(1, 2, 3, 4, 5);
+
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> list.copyRange(0, 3, 3));
+
+      assertEquals(buses(1, 2, 3, 4, 5), list);
+    }
+
+    @Test
+    void when_negativeArguments_then_indexOutOfBoundsException() {
+      CustomArrayList<Bus> list = busList(1, 2, 3);
+
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> list.copyRange(-1, 0, 2));
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> list.copyRange(0, -1, 2));
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> list.copyRange(0, 0, -1));
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> list.copyRange(List.of(bus(9)), -1, 0, 1));
+    }
+
+    @Test
+    void
+    when_indexPlusLengthWouldOverflowInt_then_indexOutOfBoundsExceptionInsteadOfWrapAround() {
+      CustomArrayList<Bus> list = busList(1, 2, 3);
+
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> list.copyRange(Integer.MAX_VALUE, 0, 2)); // self path
+      assertThrows(
+          IndexOutOfBoundsException.class,
+          () -> list.copyRange(0, Integer.MAX_VALUE, 2)); // destination
+      assertThrows(IndexOutOfBoundsException.class,
+                   ()
+                       -> list.copyRange(List.of(bus(9), bus(9), bus(9)),
+                                         Integer.MAX_VALUE, 0,
+                                         2)); // foreign
+                                              // shape guard
+
+      assertEquals(buses(1, 2, 3), list);
+    }
+
+    @Test
+    void when_listIsEmpty_then_anyPositiveLengthThrows() {
+      CustomArrayList<Bus> list = new CustomArrayList<>();
+
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> list.copyRange(0, 0, 1));
+    }
+
+    @Test
+    void
+    when_sourceRangeExceedsSourceSize_then_indexOutOfBoundsExceptionAndTargetUntouched() {
+      CustomArrayList<Bus> target = busList(1, 2, 3);
+
+      assertThrows(IndexOutOfBoundsException.class,
+                   () -> target.copyRange(Arrays.asList(bus(42)), 0, 0, 2));
+
+      assertEquals(buses(1, 2, 3), target);
+    }
+
+    // ------------------------------------------------------------------
+    // Re-entrancy / hostile-source hardening
+    // ------------------------------------------------------------------
+
+    @Test
+    void
+    when_sourceSnapshotReentersTarget_then_concurrentModificationExceptionAndTargetConsistent() {
+      CustomArrayList<Bus> target = busList(1, 2, 3);
+      List<Bus> reenteringSource = new AbstractList<Bus>() {
+        @Override
+        public Bus get(int index) {
+          return bus(100 + index);
+        }
+        @Override
+        public int size() {
+          return 3;
+        }
+        @Override
+        public List<Bus> subList(int fromIndex, int toIndex) {
+          target.add(bus(99)); // foreign code re-entering the locked target
+          return super.subList(fromIndex, toIndex);
+        }
+      };
+
+      assertThrows(ConcurrentModificationException.class,
+                   () -> target.copyRange(reenteringSource, 0, 0, 3));
+
+      // the copy was skipped; the list holds the consistent state the
+      // re-entrant add left
+      assertEquals(buses(1, 2, 3, 99), target);
+    }
+
+    @Test
+    void
+    when_sourceSnapshotLengthDisagreesWithRequestedRange_then_concurrentModificationException() {
+      CustomArrayList<Bus> target = busList(1, 2, 3);
+      List<Bus> lyingSource = new AbstractList<Bus>() {
+        @Override
+        public Bus get(int index) {
+          return bus(50 + index);
+        }
+        @Override
+        public int size() {
+          return 3;
+        }
+        @Override
+        public List<Bus> subList(int fromIndex, int toIndex) {
+          return new AbstractList<Bus>() {
+            @Override
+            public Bus get(int index) {
+              return bus(50 + index);
+            }
+            @Override
+            public int size() {
+              return 3;
+            } // claims the full range...
+            @Override
+            public Object[] toArray() {
+              return new Object[2];
+            } // ...but
+              // yields
+              // fewer
+          };
+        }
+      };
+
+      assertThrows(ConcurrentModificationException.class,
+                   () -> target.copyRange(lyingSource, 0, 0, 3));
+
+      assertEquals(buses(1, 2, 3), target);
+    }
+
+    // ------------------------------------------------------------------
+    // Fail-fast contracts
+    // ------------------------------------------------------------------
+
+    @Test
+    void when_copyRangeChangesContent_then_activeIteratorFailsFast() {
+      CustomArrayList<Bus> list = busList(1, 2, 3, 4);
+      Iterator<Bus> it = list.iterator();
+      assertEquals(bus(1), it.next());
+
+      list.copyRange(0, 2, 2); // reordering is structural, like sort
+
+      assertThrows(ConcurrentModificationException.class, it::next);
+    }
+
+    @Test
+    void when_copyRangeChangesContent_then_liveSubViewFailsFast() {
+      CustomArrayList<Bus> list = busList(1, 2, 3, 4, 5);
+      List<Bus> view = list.subList(1, 4);
+
+      list.copyRange(0, 2, 3);
+
+      assertEquals(buses(1, 2, 1, 2, 3), list);
+      assertThrows(ConcurrentModificationException.class, view::size);
+    }
+
+    // ------------------------------------------------------------------
+    // Thread-safety
+    // ------------------------------------------------------------------
+
+    @Test
+    @Timeout(60)
+    void
+    when_copyRangeRunsConcurrently_then_noExceptionsSizeStableAndOnlyOriginalBusesPresent()
+        throws Exception {
+      CustomArrayList<Bus> list = new CustomArrayList<>();
+      for (int i = 0; i < 100; ++i) {
+        list.add(bus(i));
+      }
+      int initialSize = list.size();
+      Set<Bus> originalBuses = new HashSet<>();
+      for (int i = 0; i < 100; ++i) {
+        originalBuses.add(bus(i)); // value equality: same buses as above
+      }
+
+      ExecutorService pool = Executors.newFixedThreadPool(4);
+      try {
+        List<Future<?>> results = new ArrayList<>();
+        for (int t = 0; t < 4; ++t) {
+          Random random = new Random(1_000 + t);
+          results.add(pool.submit(() -> {
+            for (int op = 0; op < 2_000; ++op) {
+              int size = list.size(); // copyRange never changes the size, so
+                                      // the bounds stay valid
+              int length = random.nextInt(size + 1);
+              int src = random.nextInt(size - length + 1);
+              int dest = random.nextInt(size - length + 1);
+              list.copyRange(src, dest, length);
+            }
+          }));
+        }
+        for (Future<?> result : results) {
+          result.get(30, TimeUnit.SECONDS); // rethrows any worker exception
+        }
+      } finally {
+        pool.shutdownNow();
+      }
+
+      assertEquals(initialSize, list.size());
+      for (int i = 0; i < initialSize; ++i) {
+        assertTrue(originalBuses.contains(list.get(i)),
+                   "unexpected element: " + list.get(i));
+      }
+    }
+
+    @Test
+    @Timeout(20)
+    void
+    when_monitorHeldByAnotherThread_then_copyRangeBlocksUntilMonitorReleased()
+        throws Exception {
+      CustomArrayList<Bus> list = busList(1, 2, 3);
+      CountDownLatch monitorHeld = new CountDownLatch(1);
+      CountDownLatch releaseMonitor = new CountDownLatch(1);
+
+      Thread holder = new Thread(() -> {
+        synchronized (list) {
+          monitorHeld.countDown();
+          try {
+            releaseMonitor.await(10, TimeUnit.SECONDS);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+        }
+      });
+      holder.start();
+      assertTrue(monitorHeld.await(10, TimeUnit.SECONDS),
+                 "holder must acquire the monitor first");
+
+      ExecutorService copier = Executors.newSingleThreadExecutor();
+      try {
+        Future<?> copy = copier.submit(() -> list.copyRange(0, 1, 2));
+
+        Thread.sleep(500); // generous window: the call must still be blocked
+        assertFalse(copy.isDone(), "copyRange() must block while another "
+                                       + "thread holds the list's monitor");
+
+        releaseMonitor.countDown();
+        copy.get(10, TimeUnit.SECONDS); // surfaces any exception thrown inside
+      } finally {
+        copier.shutdownNow();
+      }
+
+      assertEquals(buses(1, 1, 2), list);
     }
   }
 }
