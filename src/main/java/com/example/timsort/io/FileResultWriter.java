@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
- 
+
 /**
  * Реализация {@link ResultWriter}, записывающая элементы в файл
  * в режиме добавления (APPEND).
