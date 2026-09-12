@@ -1625,6 +1625,17 @@ public class CustomArrayList<T>
   }
 
   /**
+   * Builds the bounds-violation exception for {@code copyRange} with all
+   * argument values, in the style of {@code checkIndexForAccess}.
+   */
+  private IndexOutOfBoundsException
+  copyRangeBoundsError(int srcIndex, int destIndex, int length) {
+    return new IndexOutOfBoundsException(
+        "srcIndex: " + srcIndex + ", destIndex: " + destIndex +
+        ", length: " + length + ", size: " + size);
+  }
+
+  /**
    * Grows the backing array if necessary to accommodate
    * {@code minCapacity} elements. If the current capacity is
    * sufficient, returns {@code false}; otherwise reallocates
@@ -1865,6 +1876,106 @@ public class CustomArrayList<T>
       }
     }
     return true;
+  }
+
+  /**
+   * Copies {@code length} elements of {@code source}, starting at
+   * {@code srcIndex}, onto this list's range starting at
+   * {@code destIndex} — the list-level analogue of
+   * {@code System.arraycopy(src, srcPos, dest, destPos, length)} with
+   * this list as the destination.
+   *
+   * The destination range must already exist: the method never changes
+   * the list's size and never grows the backing array. Every copy behaves
+   * as if the source range were first copied into a temporary array: when
+   * {@code source} is this list (or a live view of it), overlapping ranges
+   * shift correctly in both directions.
+   *
+   * Overwriting and reordering elements is observable by live iterators
+   * and views, so a copy that may change content bumps the modification
+   * count; a zero-length copy and a self-copy onto
+   * the identical range are no-ops and leave it untouched.
+   *
+   * @param source the list to copy from; may be this list itself
+   * @param srcIndex the starting index (inclusive) of the source range
+   * @param destIndex the starting index (inclusive) of the destination
+   *     range in this list
+   * @param length the number of elements to copy
+   * @throws NullPointerException if {@code source} is {@code null}
+   * @throws IndexOutOfBoundsException if an index is negative, or the
+   *     source or destination range extends beyond the respective list's
+   *     size
+   * @throws ConcurrentModificationException if the source snapshot code
+   *     re-enters and structurally modifies this list
+   */
+  public synchronized void copyRange(List<? extends T> source, int srcIndex,
+                                     int destIndex, int length) {
+    Objects.requireNonNull(source);
+
+    if (srcIndex < 0 || destIndex < 0 || length < 0) {
+      throw copyRangeBoundsError(srcIndex, destIndex, length);
+    }
+
+    if (destIndex > size - length) {
+      throw copyRangeBoundsError(srcIndex, destIndex, length);
+    }
+
+    if (source == this) {
+      if (srcIndex > size - length) {
+        throw copyRangeBoundsError(srcIndex, destIndex, length);
+      }
+
+      if (length > 0 && srcIndex != destIndex) {
+        System.arraycopy(data, srcIndex, data, destIndex, length);
+        ++modCount;
+      }
+      return;
+    }
+
+    // Foreign source: snapshot its range first, then write.
+    if (srcIndex > Integer.MAX_VALUE - length) {
+      throw copyRangeBoundsError(srcIndex, destIndex, length);
+    }
+
+    final int expectedModCount = modCount;
+    // Why a snapshot: a live iteration of
+    // the source would race with our own writes when the source is a
+    // view of this very list — reading back slots we have just
+    // overwritten.
+    Object[] snapshot = source.subList(srcIndex, srcIndex + length).toArray();
+
+    if (snapshot.length != length) {
+      // The source changed between subList() and toArray() (or is not a
+      // well-behaved List): the payload no longer matches the promised
+      // range — refuse to write it.
+      throw new ConcurrentModificationException();
+    }
+
+    if (modCount != expectedModCount) {
+      throw new ConcurrentModificationException();
+    }
+
+    if (length > 0) {
+      System.arraycopy(snapshot, 0, data, destIndex, length);
+      ++modCount;
+    }
+  }
+
+  /**
+   * Copies {@code length} elements of this list from the range starting
+   * at {@code srcIndex} onto the range starting at {@code destIndex}.
+   * Convenience overload of
+   * {@link #copyRange(List, int, int, int) copyRange(this, ...)}.
+   *
+   * @param srcIndex the starting index (inclusive) of the source range
+   * @param destIndex the starting index (inclusive) of the destination
+   *     range
+   * @param length the number of elements to copy
+   * @throws IndexOutOfBoundsException if an index is negative, or the
+   *     source or destination range extends beyond this list's size
+   */
+  public synchronized void copyRange(int srcIndex, int destIndex, int length) {
+    copyRange(this, srcIndex, destIndex, length);
   }
 
   /**
