@@ -3,19 +3,20 @@ package com.example.timsort.validation;
 import java.util.Optional;
 
 /**
- * Функциональный интерфейс правила валидации.
- * Принимает объект и возвращает Optional с сообщением об ошибке, если правило нарушено.
+ * Functional interface of a single validation rule: takes an object and
+ * returns an Optional holding the error message when the rule is violated.
  *
- * @param <T> тип валидируемого объекта
+ * @param <T> type of the validated object
  */
 @FunctionalInterface
 public interface Rule<T> {
 
-    /**
-     * Применяет правило к объекту.
-     *
-     * @param value объект для проверки
-     * @return Optional с сообщением об ошибке, если правило нарушено; пустой Optional, если всё ок
-     */
-    Optional<String> apply(T value);
+  /**
+   * Applies the rule to the object.
+   *
+   * @param value object to check
+   * @return Optional with an error message if the rule is violated;
+   *         an empty Optional otherwise
+   */
+  Optional<String> apply(T value);
 }

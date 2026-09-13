@@ -1,67 +1,60 @@
 package com.example.timsort.validation;
 
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 class ValidationResultTest {
 
-    @Test
-    void when_failureWithEmptyList_then_throwsException() {
-        // Act & Assert
-        assertThrows(IllegalArgumentException.class, () -> {
-            ValidationResult.failure(List.of());
-        }, "failure с пустым списком должен бросить исключение");
-    }
+  @Test
+  void whenOfValidValue_thenHoldsValueAndNoErrors() {
+    ValidationResult<String> result = ValidationResult.of("test");
+    assertTrue(result.isValid());
+    assertEquals(Optional.of("test"), result.value());
+    assertTrue(result.errors().isEmpty());
+  }
 
-    @Test
-    void when_failureWithNullList_then_throwsException() {
-        // Act & Assert
-        assertThrows(IllegalArgumentException.class, () -> {
-            ValidationResult.failure(null);
-        }, "failure с null должен бросить исключение");
-    }
+  @Test
+  void whenOfNull_thenThrowsNpe() {
+    // pins the contract: a valid value is never null
+    assertThrows(NullPointerException.class, () -> ValidationResult.of(null));
+  }
 
-    @Test
-    void when_ofValidValue_then_isValidReturnsTrue() {
-        // Arrange
-        String value = "test";
+  @Test
+  void whenFailure_thenHoldsErrorsAndNoValue() {
+    ValidationResult<String> result =
+        ValidationResult.failure(List.of("Ошибка 1", "Ошибка 2"));
+    assertFalse(result.isValid());
+    assertTrue(result.value().isEmpty());
+    assertEquals(List.of("Ошибка 1", "Ошибка 2"), result.errors());
+  }
 
-        // Act
-        ValidationResult<String> result = ValidationResult.of(value);
+  @Test
+  void whenFailureWithNullOrEmptyList_thenThrowsIae() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> ValidationResult.failure(null));
+    assertThrows(IllegalArgumentException.class,
+                 () -> ValidationResult.failure(List.of()));
+  }
 
-        // Assert
-        assertTrue(result.isValid());
-        assertEquals(value, result.value().orElse(null));
-        assertTrue(result.errors().isEmpty());
-    }
+  @Test
+  void whenFailureGivenMutableList_thenIsolatedFromSourceChanges() {
+    List<String> source = new ArrayList<>(List.of("Ошибка 1"));
+    ValidationResult<String> result = ValidationResult.failure(source);
+    source.add("Ошибка 2");
+    assertEquals(1, result.errors().size(),
+                 "result must be isolated from the source list");
+  }
 
-    @Test
-    void when_failureWithErrors_then_isValidReturnsFalse() {
-        // Arrange
-        List<String> errors = List.of("Ошибка 1", "Ошибка 2");
-
-        // Act
-        ValidationResult<String> result = ValidationResult.failure(errors);
-
-        // Assert
-        assertFalse(result.isValid());
-        assertEquals(2, result.errors().size());
-        assertTrue(result.value().isEmpty());
-    }
-
-    @Test
-    void when_failureReturnsUnmodifiableList_then_cannotModify() {
-        // Arrange
-        List<String> errors = List.of("Ошибка");
-        ValidationResult<String> result = ValidationResult.failure(errors);
-
-        // Act & Assert
-        assertThrows(UnsupportedOperationException.class, () -> {
-            result.errors().add("Новая ошибка");
-        }, "Список ошибок должен быть неизменяемым");
-    }
+  @Test
+  void whenErrorsModified_thenUnsupportedOperation() {
+    ValidationResult<String> result =
+        ValidationResult.failure(List.of("Ошибка"));
+    assertThrows(UnsupportedOperationException.class,
+                 () -> result.errors().add("новая"));
+  }
 }

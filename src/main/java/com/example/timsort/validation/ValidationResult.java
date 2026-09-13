@@ -1,80 +1,68 @@
 package com.example.timsort.validation;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Иммутабельный контейнер результата валидации.
- * Содержит либо валидное значение, либо список ошибок.
+ * Immutable validation result: holds either a valid value or a list of errors.
  *
- * @param <T> тип валидируемого объекта
+ * <p>Contract: a valid value implies an empty error list and vice versa.
+ * A valid value is never null.</p>
+ *
+ * @param <T> type of the validated value
  */
 public final class ValidationResult<T> {
 
-    private final Optional<T> value;
-    private final List<String> errors;
+  private final Optional<T> value;
+  private final List<String> errors;
 
-    /**
-     * Приватный конструктор.
-     *
-     * @param value  валидное значение (может отсутствовать)
-     * @param errors список ошибок валидации
-     */
-    private ValidationResult(Optional<T> value, List<String> errors) {
-        this.value = value;
-        this.errors = errors;
-    }
+  private ValidationResult(Optional<T> value, List<String> errors) {
+    this.value = Objects.requireNonNull(value);
+    this.errors = List.copyOf(errors);
+  }
 
-    /**
-     * Создаёт успешный результат с валидным значением.
-     *
-     * @param value валидное значение
-     * @param <T>   тип значения
-     * @return успешный ValidationResult
-     */
-    public static <T> ValidationResult<T> of(T value) {
-        return new ValidationResult<>(Optional.of(value), Collections.emptyList());
-    }
+  /**
+   * Creates a successful result.
+   *
+   * @param value the valid value
+   * @throws NullPointerException if value is null — a valid value is
+   *         never null by contract
+   */
+  public static <T> ValidationResult<T> of(T value) {
+    Objects.requireNonNull(value, "a valid value must not be null");
 
-    /**
-     * Создаёт результат с ошибками.
-     *
-     * @param errors список ошибок
-     * @param <T>    тип валидируемого объекта
-     * @return ValidationResult с ошибками
-     */
-    public static <T> ValidationResult<T> failure(List<String> errors) {
-        if (errors == null || errors.isEmpty()) {
-            throw new IllegalArgumentException("failure требует непустой список ошибок");
-        }
-        return new ValidationResult<>(Optional.empty(), List.copyOf(errors));
-    }
+    return new ValidationResult<>(Optional.of(value), List.of());
+  }
 
-    /**
-     * Проверяет, прошла ли валидация успешно.
-     *
-     * @return true если ошибок нет
-     */
-    public boolean isValid() {
-        return errors.isEmpty();
+  /**
+   * Creates a failed result.
+   *
+   * @param errors violations found; must be non-empty
+   * @throws IllegalArgumentException if errors is null or empty
+   */
+  public static <T> ValidationResult<T> failure(List<String> errors) {
+    if (errors == null || errors.isEmpty()) {
+      throw new IllegalArgumentException(
+          "failure requires a non-empty error list");
     }
+    return new ValidationResult<>(Optional.empty(), errors);
+  }
 
-    /**
-     * Возвращает список ошибок.
-     *
-     * @return неизменяемый список ошибок
-     */
-    public List<String> errors() {
-        return errors;
-    }
+  /** @return true when validation succeeded */
+  public boolean isValid() { return errors.isEmpty(); }
 
-    /**
-     * Возвращает валидное значение, если валидация прошла успешно.
-     *
-     * @return Optional с значением или пустой
-     */
-    public Optional<T> value() {
-        return value;
-    }
+  /** @return unmodifiable error list; empty when valid */
+  public List<String> errors() { return errors; }
+
+  /** @return the valid value; an empty Optional when invalid */
+  public Optional<T> value() { return value; }
+
+  @Override
+  public String toString() {
+    return "ValidationResult[" +
+        (isValid() ? "valid: " + value.map(String::valueOf).orElse("?")
+                   : "errors: " + errors) +
+        "]";
+  }
 }
