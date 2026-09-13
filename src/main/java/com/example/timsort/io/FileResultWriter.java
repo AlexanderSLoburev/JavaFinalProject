@@ -14,115 +14,124 @@ import java.util.Objects;
 import java.util.function.Function;
 
 /**
- * Реализация {@link ResultWriter}, записывающая элементы в файл
- * в режиме добавления (APPEND).
+ * A {@link ResultWriter} that appends elements to a file (APPEND mode).
  *
- * <p>Формат вывода:
+ * <p>Output format:
  * <pre>
- * --- Результат от 2025-03-25T12:00:00 ---
+ * --- Result from 2025-03-25T12:00:00 (sorted by mileage) ---
  * routeNumber;model;mileage
  * routeNumber;model;mileage
  * ...
  * </pre>
  *
- * <p>Файл создаётся, если не существует. Повторные вызовы
- * {@link #appendAll(List)} не удаляют предыдущие данные, а дописывают
- * новые блоки в конец. Каждый блок предваряется заголовком с временной
- * меткой (и, при наличии, описанием сортировки).
- * </p>
+ * <p>The file is created if missing. Repeated {@link #appendAll(List)}
+ * calls do not erase previous data: each call appends a new block
+ * preceded by a timestamp header (and, when present, the description).
+ * An empty list writes a header-only block.</p>
  *
- * <p>Класс потокобезопасен за счёт синхронизации на самом экземпляре:
- * одновременные вызовы {@code appendAll} не перемешивают блоки.
- * </p>
+ * <p>WHY human-readable, not round-trip: this file is a terminal output
+ * for humans; it is not meant to be fed back into FileBusSource — the
+ * block headers of repeated calls would be parsed as data lines.</p>
  *
- * @param <T> тип записываемых элементов
+ * <p>Thread safety: {@code appendAll} is synchronized on this instance,
+ * so concurrent calls on one writer never interleave blocks. Distinct
+ * writers targeting the same file are NOT coordinated.</p>
+ *
+ * @param <T> the type of the written elements
  */
 public class FileResultWriter<T> implements ResultWriter<T> {
 
-    private static final DateTimeFormatter TIMESTAMP_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
-    private static final String HEADER_PREFIX = "--- Результат от ";
-    private static final String HEADER_SUFFIX = " ---";
-    private static final String DEFAULT_DESCRIPTION = "";
+  private static final DateTimeFormatter TIMESTAMP_FORMAT =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+  private static final String HEADER_PREFIX = "--- Result from ";
+  private static final String HEADER_SUFFIX = " ---";
+  private static final String DEFAULT_DESCRIPTION = "";
 
-    private final Path path;
-    private final Function<T, String> formatter;
-    private final String description;
+  private final Path path;
+  private final Function<T, String> formatter;
+  private final String description;
 
-    /**
-     * Создаёт писатель с пустым описанием.
-     *
-     * @param path      путь к файлу результата
-     * @param formatter функция преобразования элемента в строку
-     * @throws NullPointerException если {@code path} или {@code formatter} равны {@code null}
-     */
-    public FileResultWriter(Path path, Function<T, String> formatter) {
-        this(path, formatter, DEFAULT_DESCRIPTION);
+  /**
+   * Creates a writer with an empty description.
+   *
+   * @param path      path to the result file
+   * @param formatter converts an element to its output line; must not
+   *        be null and must not return null
+   * @throws NullPointerException if {@code path} or {@code formatter}
+   *         is null
+   */
+  public FileResultWriter(Path path, Function<T, String> formatter) {
+    this(path, formatter, DEFAULT_DESCRIPTION);
+  }
+
+  /**
+   * Creates a writer with a processing description.
+   *
+   * @param path        path to the result file
+   * @param formatter   converts an element to its output line; must not
+   *        be null and must not return null. May throw — in that case
+   *        the file stays untouched
+   * @param description shown in the block header, e.g. "sorted by
+   *        mileage"; may be empty or null (treated as empty)
+   * @throws NullPointerException if {@code path} or {@code formatter}
+   *         is null
+   */
+  public FileResultWriter(Path path, Function<T, String> formatter,
+                          String description) {
+    this.path = Objects.requireNonNull(path, "path must not be null");
+    this.formatter =
+        Objects.requireNonNull(formatter, "formatter must not be null");
+    this.description =
+        (description == null) ? DEFAULT_DESCRIPTION : description;
+  }
+
+  /**
+   * Appends a block of data to the end of the file.
+   *
+   * <p>Each call builds a header with the current timestamp and (when
+   * present) the description, then appends the formatted elements.
+   * The file is created if missing. An empty list writes a
+   * header-only block.</p>
+   *
+   * @param items the elements to write
+   * @throws NullPointerException if {@code items} is null
+   * @throws UncheckedIOException if an I/O error occurs
+   */
+  @Override
+  public synchronized void appendAll(List<T> items) {
+    Objects.requireNonNull(items, "items must not be null");
+
+    // WHY the whole block is built before writing: a failing
+    // formatter leaves the file untouched — no orphaned headers,
+    // no half-written blocks
+    List<String> lines = new ArrayList<>(items.size() + 1);
+    lines.add(buildHeader());
+    for (T item : items) {
+      lines.add(formatter.apply(item));
     }
 
-    /**
-     * Создаёт писатель с описанием сортировки/обработки.
-     *
-     * @param path        путь к файлу результата
-     * @param formatter   функция преобразования элемента в строку
-     * @param description описание (например, "сортировка по пробегу"); может быть пустым
-     * @throws NullPointerException если {@code path} или {@code formatter} равны {@code null}
-     */
-    public FileResultWriter(Path path, Function<T, String> formatter,
-                            String description) {
-        this.path = Objects.requireNonNull(path, "path must not be null");
-        this.formatter = Objects.requireNonNull(formatter,
-                "formatter must not be null");
-        this.description = (description == null) ? DEFAULT_DESCRIPTION
-                                                 : description;
+    try {
+      Files.write(path, lines, StandardCharsets.UTF_8,
+                  StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    } catch (IOException e) {
+      throw new UncheckedIOException("Failed to write results to " + path, e);
     }
+  }
 
-    /**
-     * Дописывает блок данных в конец файла.
-     * <p>
-     * Каждый вызов формирует заголовок с текущей временной меткой и
-     * (при наличии) описанием, затем добавляет отформатированные
-     * элементы. Файл создаётся, если не существует.
-     * </p>
-     *
-     * @param items список элементов для записи
-     * @throws NullPointerException если {@code items} равен {@code null}
-     * @throws UncheckedIOException если произошла ошибка ввода-вывода
-     */
-    @Override
-    public synchronized void appendAll(List<T> items) {
-        Objects.requireNonNull(items, "items must not be null");
-
-        List<String> lines = new ArrayList<>(items.size() + 1);
-        lines.add(buildHeader());
-        for (T item : items) {
-            lines.add(formatter.apply(item));
-        }
-
-        try {
-            Files.write(path, lines, StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.APPEND);
-        } catch (IOException e) {
-            throw new UncheckedIOException(
-                    "Не удалось записать результаты в " + path, e);
-        }
+  /**
+   * Builds the header line with the timestamp and description.
+   *
+   * @return a line like
+   *         {@code --- Result from 2025-03-25T12:00:00 (sorted by mileage) ---}
+   */
+  private String buildHeader() {
+    StringBuilder sb = new StringBuilder();
+    sb.append(HEADER_PREFIX)
+        .append(LocalDateTime.now().format(TIMESTAMP_FORMAT));
+    if (!description.isEmpty()) {
+      sb.append(" (").append(description).append(')');
     }
-
-    /**
-     * Формирует строку заголовка с временной меткой и описанием.
-     *
-     * @return строка вида
-     *         {@code --- Результат от 2025-03-25T12:00:00 (сортировка по пробегу) ---}
-     */
-    private String buildHeader() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(HEADER_PREFIX)
-          .append(LocalDateTime.now().format(TIMESTAMP_FORMAT));
-        if (!description.isEmpty()) {
-            sb.append(" (").append(description).append(')');
-        }
-        sb.append(HEADER_SUFFIX);
-        return sb.toString();
-    }
+    sb.append(HEADER_SUFFIX);
+    return sb.toString();
+  }
 }

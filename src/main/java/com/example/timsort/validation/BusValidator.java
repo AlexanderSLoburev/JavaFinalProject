@@ -17,15 +17,6 @@ import java.util.regex.Pattern;
  */
 public final class BusValidator implements Validator<Bus> {
 
-  private static final int MIN_ROUTE_NUMBER = 1;
-  private static final int MAX_ROUTE_NUMBER = 999;
-  private static final int MIN_MODEL_LENGTH = 2;
-  private static final int MAX_MODEL_LENGTH = 30;
-  private static final Pattern MODEL_PATTERN =
-      Pattern.compile("[а-яА-ЯёЁa-zA-Z0-9\\-\\s]+");
-  private static final long MIN_MILEAGE = 0;
-  private static final long MAX_MILEAGE = 2_000_000;
-
   private final Validator<Bus> delegate = RuleBasedValidator.of(
       List.of(routeNumberRule(), modelRule(), mileageRule()));
 
@@ -39,9 +30,11 @@ public final class BusValidator implements Validator<Bus> {
     return bus -> {
       int route = bus.routeNumber();
 
-      if (route < MIN_ROUTE_NUMBER || route > MAX_ROUTE_NUMBER) {
+      if (route < BusValidationConstants.MIN_ROUTE_NUMBER ||
+          route > BusValidationConstants.MAX_ROUTE_NUMBER) {
         return Optional.of("The route number must be between " +
-                           MIN_ROUTE_NUMBER + " and " + MAX_ROUTE_NUMBER +
+                           BusValidationConstants.MIN_ROUTE_NUMBER + " and " +
+                           BusValidationConstants.MAX_ROUTE_NUMBER +
                            ", current value: " + route);
       }
 
@@ -60,15 +53,16 @@ public final class BusValidator implements Validator<Bus> {
       }
 
       String normalized = model.strip();
-      if (normalized.length() < MIN_MODEL_LENGTH ||
-          normalized.length() > MAX_MODEL_LENGTH) {
+      if (normalized.length() < BusValidationConstants.MIN_MODEL_LENGTH ||
+          normalized.length() > BusValidationConstants.MAX_MODEL_LENGTH) {
         return Optional.of(
-            "The model must contain between " + MIN_MODEL_LENGTH + " and " +
-            MAX_MODEL_LENGTH +
+            "The model must contain between " +
+            BusValidationConstants.MIN_MODEL_LENGTH + " and " +
+            BusValidationConstants.MAX_MODEL_LENGTH +
             " characters; current length: " + normalized.length());
       }
 
-      if (!MODEL_PATTERN.matcher(normalized).matches()) {
+      if (!BusValidationConstants.MODEL_PATTERN.matcher(normalized).matches()) {
         return Optional.of(
             "The model can contain only letters, numbers, hyphens, and spaces");
       }
@@ -81,9 +75,12 @@ public final class BusValidator implements Validator<Bus> {
   private static Rule<Bus> mileageRule() {
     return bus -> {
       long mileage = bus.mileage();
-      if (mileage < MIN_MILEAGE || mileage > MAX_MILEAGE) {
-        return Optional.of("Mileage must be between " + MIN_MILEAGE + " and " +
-                           MAX_MILEAGE + ", current value: " + mileage);
+      if (mileage < BusValidationConstants.MIN_MILEAGE ||
+          mileage > BusValidationConstants.MAX_MILEAGE) {
+        return Optional.of("Mileage must be between " +
+                           BusValidationConstants.MIN_MILEAGE + " and " +
+                           BusValidationConstants.MAX_MILEAGE +
+                           ", current value: " + mileage);
       }
       return Optional.empty();
     };

@@ -3,24 +3,26 @@ package com.example.timsort.io;
 import java.util.List;
 
 /**
- * Стратегия записи результатов обработки коллекции.
- * <p>
- * Реализации могут сохранять данные в файл, отправлять по сети,
- * выводить в консоль и т.д. Контракт метода {@link #appendAll(List)}
- * — <b>добавление</b>, а не перезапись: повторные вызовы накапливают
- * данные.
- * </p>
+ * Strategy for writing out the results of collection processing.
  *
- * @param <T> тип записываемых элементов
+ * <p>Implementations may persist data to a file, send it over the
+ * network, print it to the console, etc. The contract of
+ * {@link #appendAll(List)} is <b>appending</b>, not overwriting:
+ * repeated calls accumulate the data.</p>
+ *
+ * @param <T> the type of the written elements
  */
 public interface ResultWriter<T> {
 
-    /**
-     * Записывает переданные элементы, добавляя их к уже
-     * существующим данным (режим APPEND).
-     *
-     * @param items список элементов для записи; не должен быть {@code null}
-     * @throws NullPointerException если {@code items} равен {@code null}
-     */
-    void appendAll(List<T> items);
+  /**
+   * Writes the given elements by adding them to the already
+   * existing data (APPEND mode).
+   *
+   * <p>An empty list produces no data lines; whether a block header
+   * is emitted is implementation-specific.</p>
+   *
+   * @param items the elements to write; must not be {@code null}
+   * @throws NullPointerException if {@code items} is {@code null}
+   */
+  void appendAll(List<T> items);
 }
