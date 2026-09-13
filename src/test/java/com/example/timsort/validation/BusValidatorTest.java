@@ -1,176 +1,157 @@
 package com.example.timsort.validation;
 
-import com.example.timsort.model.Bus;
-import org.junit.jupiter.api.Test;
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.*;
+
+import com.example.timsort.model.Bus;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+
 
 class BusValidatorTest {
 
-    @Test
-    void shouldAcceptValidBus() {
-        BusValidator validator = new BusValidator();
-        Bus validBus = Bus.builder()  // ← используем API loburev
-                .routeNumber(42)
-                .model("ЛиАЗ-5292")
-                .mileage(150000)
-                .build();
+  private final BusValidator validator = new BusValidator();
 
-        ValidationResult<Bus> result = validator.validate(validBus);
+  private Bus bus(int route, String model, long mileage) {
+    return Bus.builder()
+        .routeNumber(route)
+        .model(model)
+        .mileage(mileage)
+        .build();
+  }
 
-        assertTrue(result.isValid(), "Валидный автобус должен пройти валидацию");
-        assertEquals(validBus, result.value().orElse(null), "Результат должен содержать исходный объект");
-        assertTrue(result.errors().isEmpty(), "Список ошибок должен быть пуст");
-    }
+  @Test
+  void shouldAcceptValidBus() {
+    Bus valid = bus(42, "ЛиАЗ-5292", 150_000);
+    ValidationResult<Bus> result = validator.validate(valid);
+    assertTrue(result.isValid());
+    assertEquals(Optional.of(valid), result.value());
+    assertTrue(result.errors().isEmpty());
+  }
 
-    @Test
-    void shouldRejectInvalidRouteNumber() {
-        BusValidator validator = new BusValidator();
-        Bus invalidBus = Bus.builder()  // ← используем API loburev
-                .routeNumber(0)
-                .model("ЛиАЗ-5292")
-                .mileage(150000)
-                .build();
+  @Test
+  void shouldAcceptBoundaryValues() {
+    assertTrue(validator.validate(bus(1, "AB", 0)).isValid());
+    assertTrue(
+        validator.validate(bus(999, "A".repeat(30), 2_000_000)).isValid());
+  }
 
-        ValidationResult<Bus> result = validator.validate(invalidBus);
+  @ParameterizedTest
+  @ValueSource(ints = {1, 42, 999})
+  void shouldAcceptRouteNumberBoundaries(int routeNumber) {
+    assertTrue(validator.validate(bus(routeNumber, "ЛиАЗ-5292", 1)).isValid());
+  }
 
-        assertFalse(result.isValid(), "Невалидный номер маршрута должен быть отклонён");
-        assertTrue(result.errors().stream()
-                        .anyMatch(error -> error.toLowerCase().contains("маршрут")),
-                "Ошибка должна упоминать маршрут");
-    }
+  @ParameterizedTest
+  @ValueSource(ints = {0, -1, -100, 1000, 100_500})
+  void shouldRejectRouteNumberOutsideRange(int routeNumber) {
+    ValidationResult<Bus> result =
+        validator.validate(bus(routeNumber, "ЛиАЗ-5292", 1));
+    assertFalse(result.isValid());
+    assertTrue(result.errors().stream().anyMatch(
+        e -> e.toLowerCase(Locale.ROOT).contains("route")));
+  }
 
-    @Test
-    void shouldRejectEmptyModel() {
-        // Arrange
-        BusValidator validator = new BusValidator();
-        // Пустая строка не пройдёт Builder, поэтому используем недопустимые символы
-        Bus invalidBus = Bus.builder()
-                .routeNumber(42)
-                .model("!!!")  // Спецсимволы не проходят шаблон
-                .mileage(150000)
-                .build();
+  @ParameterizedTest(name = "[{index}] model=\"{0}\"")
+  @MethodSource("validModels")
+  void shouldAcceptValidModel(String model) {
+    assertTrue(validator.validate(bus(42, model, 1)).isValid());
+  }
 
-        // Act
-        ValidationResult<Bus> result = validator.validate(invalidBus);
+  static Stream<String> validModels() {
+    return Stream.of("AB", "ЛиАЗ-5292", "Ё-мобиль", "ё-мобиль", "ЛиАЗ 5292",
+                     "A".repeat(30));
+  }
 
-        // Assert
-        assertFalse(result.isValid());
-        assertTrue(result.errors().stream()
-                .anyMatch(error -> error.toLowerCase().contains("модель")));
-    }
+  @ParameterizedTest(name = "[{index}] model={0}")
+  @MethodSource("invalidModels")
+  void shouldRejectInvalidModel(String model) {
+    ValidationResult<Bus> result = validator.validate(bus(42, model, 1));
+    assertFalse(result.isValid());
+    assertTrue(result.errors().stream().anyMatch(
+        e -> e.toLowerCase(Locale.ROOT).contains("model")));
+  }
 
-    @Test
-    void shouldRejectNegativeMileage() {
-        // Arrange
-        BusValidator validator = new BusValidator();
-        // Отрицательное не пройдёт Builder, поэтому используем слишком большое
-        Bus invalidBus = Bus.builder()
-                .routeNumber(42)
-                .model("ЛиАЗ-5292")
-                .mileage(2_000_001)  // Больше максимума
-                .build();
+  static Stream<String> invalidModels() {
+    return Stream.of(null, "", " ", "!", "A", "A".repeat(31), "ЛиАЗ_5292",
+                     "model?");
+  }
 
-        // Act
-        ValidationResult<Bus> result = validator.validate(invalidBus);
+  @Test
+  void shouldMeasureModelLengthAfterTrimming() {
+    // " A" trims to "A" — a 1-character model, must fail the length check
+    ValidationResult<Bus> result = validator.validate(bus(42, " A", 1));
+    assertFalse(result.isValid());
+    assertTrue(result.errors().stream().anyMatch(
+        e -> e.toLowerCase(Locale.ROOT).contains("character")));
+  }
 
-        // Assert
-        assertFalse(result.isValid());
-        assertTrue(result.errors().stream()
-                .anyMatch(error -> error.toLowerCase().contains("пробег")));
-    }
+  @ParameterizedTest
+  @ValueSource(longs = {0, 1, 2_000_000})
+  void shouldAcceptMileageBoundaries(long mileage) {
+    assertTrue(validator.validate(bus(42, "ЛиАЗ-5292", mileage)).isValid());
+  }
 
-    @Test
-    void shouldCollectMultipleErrors() {
-        // Arrange
-        BusValidator validator = new BusValidator();
-        // Используем значения, которые проходят Builder, но не проходят Validator:
-        // routeNumber=0 (должно быть 1-999)
-        // model="!" (допустимая строка, но не проходит шаблон)
-        // mileage=2_000_001 (должно быть 0-2_000_000)
-        Bus invalidBus = Bus.builder()
-                .routeNumber(0)
-                .model("!")
-                .mileage(2_000_001)
-                .build();
+  @ParameterizedTest
+  @ValueSource(longs = {-1, -100, 2_000_001, Long.MAX_VALUE})
+  void shouldRejectMileageOutsideRange(long mileage) {
+    ValidationResult<Bus> result =
+        validator.validate(bus(42, "ЛиАЗ-5292", mileage));
+    assertFalse(result.isValid());
+    assertTrue(result.errors().stream().anyMatch(
+        e -> e.toLowerCase(Locale.ROOT).contains("mileage")));
+  }
 
-        // Act
-        ValidationResult<Bus> result = validator.validate(invalidBus);
+  @Test
+  void shouldCollectAllFieldErrors() {
+    // model "!" violates the length check (1 < 2)
+    ValidationResult<Bus> result = validator.validate(bus(0, "!", 2_000_001));
+    assertFalse(result.isValid());
+    assertEquals(3, result.errors().size());
+    assertTrue(
+        result.errors().get(0).toLowerCase(Locale.ROOT).contains("route"));
+    assertTrue(
+        result.errors().get(1).toLowerCase(Locale.ROOT).contains("model"));
+    assertTrue(
+        result.errors().get(2).toLowerCase(Locale.ROOT).contains("mileage"));
+  }
 
-        // Assert
-        assertFalse(result.isValid());
-        assertEquals(3, result.errors().size(), "Должно быть ровно 3 ошибки");
-    }
+  @Test
+  void shouldReportAtMostOneErrorPerField() {
+    // "!" violates both length and pattern — only the first is reported
+    ValidationResult<Bus> result = validator.validate(bus(42, "!", 1));
+    assertEquals(1, result.errors().size());
+  }
 
-    @Test
-    void when_validatorsComposedWithAnd_then_errorsAccumulate() {
-        // Arrange
-        Validator<Bus> validator1 = new BusValidator();
-        Validator<Bus> validator2 = bus -> {
-            if (bus.routeNumber() == 42) {
-                return ValidationResult.failure(List.of("Custom error: route 42 not allowed"));
-            }
-            return ValidationResult.of(bus);
-        };
+  @Test
+  void shouldFailOnNullBus() {
+    ValidationResult<Bus> result = validator.validate(null);
+    assertFalse(result.isValid());
+    assertTrue(result.errors().stream().anyMatch(e -> e.contains("null")));
+  }
 
-        Validator<Bus> composed = validator1.and(validator2);
-        Bus bus = Bus.builder()
-                .routeNumber(42)
-                .model("ЛиАЗ-5292")
-                .mileage(150000)
-                .build();
+  @Test
+  void shouldAccumulateErrorsFromComposedValidators() {
+    Validator<Bus> extra = other
+        -> other.routeNumber() < 100
+               ? ValidationResult.failure(
+                     List.of("Route numbers below 100 are not served"))
+               : ValidationResult.of(other);
 
-        // Act
-        ValidationResult<Bus> result = composed.validate(bus);
+    // route 0 is invalid for both: out of 1..999 and below 100
+    ValidationResult<Bus> result =
+        validator.and(extra).validate(bus(0, "ЛиАЗ-5292", 1));
 
-        // Assert
-        assertFalse(result.isValid());
-        assertTrue(result.errors().size() >= 1);
-        assertTrue(result.errors().stream()
-                .anyMatch(e -> e.contains("Custom error")));
-    }
-
-    @Test
-    void when_boundaryValidValues_then_validationPasses() {
-        // Arrange
-        BusValidator validator = new BusValidator();
-
-        // Минимальные допустимые значения
-        Bus minValid = Bus.builder()
-                .routeNumber(1)
-                .model("AB")
-                .mileage(0)
-                .build();
-
-        // Максимальные допустимые значения
-        Bus maxValid = Bus.builder()
-                .routeNumber(999)
-                .model("A".repeat(30))
-                .mileage(2_000_000)
-                .build();
-
-        // Act
-        ValidationResult<Bus> resultMin = validator.validate(minValid);
-        ValidationResult<Bus> resultMax = validator.validate(maxValid);
-
-        // Assert
-        assertTrue(resultMin.isValid(), "Минимальные допустимые значения должны проходить");
-        assertTrue(resultMax.isValid(), "Максимальные допустимые значения должны проходить");
-    }
-
-    @Test
-    void when_validateNull_then_returnsFailure() {
-        // Arrange
-        BusValidator validator = new BusValidator();
-
-        // Act
-        ValidationResult<Bus> result = validator.validate(null);
-
-        // Assert
-        assertFalse(result.isValid(), "Null объект должен быть отклонён");
-        assertTrue(result.errors().stream()
-                        .anyMatch(error -> error.contains("null")),
-                "Ошибка должна упоминать null");
-    }
+    assertFalse(result.isValid());
+    assertEquals(2, result.errors().size());
+    assertTrue(
+        result.errors().get(0).toLowerCase(Locale.ROOT).contains("route"));
+    assertTrue(
+        result.errors().get(1).toLowerCase(Locale.ROOT).contains("below"));
+  }
 }
