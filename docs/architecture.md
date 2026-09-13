@@ -185,9 +185,270 @@ com.example.timsort
 
 ## 6. Валидация
 
-Валидация построена функционально. Базовый блок — `Rule<T>`, функциональный интерфейс вида `Function<T, Optional<String>>`: правило принимает объект и возвращает `Optional` с текстом ошибки, если ограничение нарушено. `Validator<T>` — интерфейс с методом `validate(T): ValidationResult<T>`, снабжённый дефолтным комбинатором `and(Validator<T>)`, что позволяет собирать составные валидаторы композиций. `ValidationResult<T>` — иммутабельный носитель результата с фабриками `of(value)` и `failure(errors)` и методами `isValid()`, `errors()`, `value()` (монадический стиль без исключений в потоке управления).
+### 1. Назначение
 
-`BusValidator` собирается из списка правил: номер маршрута — целое в диапазоне 1–999; модель — непустая строка 2–30 символов по шаблону буквы/цифры/дефис/пробел; пробег — целое 0–2 000 000. Политика применения различается по источнику: при чтении из файла невалидные строки пропускаются с предупреждением в консоль (номер строки и причина); при ручном вводе система переспрашивает до корректного значения (с ограничением числа попыток); случайные данные генерируются в валидных границах, но для единообразия прогоняются через тот же валидатор.
+Подсистема предоставляет **универсальный, переиспользуемый каркас для декларативной валидации объектов** и конкретную реализацию для доменного класса `Bus`. Валидация в проекте выполняется при загрузке данных из CSV (`FileBusSource`): каждая строка декодируется в `Bus`, затем проверяется валидатором; невалидные записи пропускаются с предупреждением.
+
+Ключевая характеристика — **накопление всех нарушений за один проход** вместо fail-fast: пользователь получает полный список ошибок, а не первую.
+
+### 2. Архитектурные решения
+
+| Решение | Содержание | Следствие |
+|---|---|---|
+| Разделение транспорта и семантики | `Bus` — «широкий» носитель данных без инвариантов; `BusCodec` проверяет только синтаксис CSV | Валидатор — **единственный источник бизнес-правил**; все невалидные значения достижимы и тестируемы |
+| Без исключений в потоке валидации | `Rule` возвращает `Optional<String>`, `Validator` — `ValidationResult`; null-вход даёт failure, а не NPE | Валидация безопасно вызывается на любых данных |
+| Ядро + декларации | `RuleBasedValidator<T>` реализует механику «применить правила, собрать ошибки»; `BusValidator` только объявляет три правила | Новый валидатор для любого класса — одна декларация правил |
+| Композиция | `default Validator<T> and(Validator<T>)` | Валидаторы комбинируются, ошибки накапливаются из обоих |
+| Иммутабельность | Все типы подсистемы stateless/immutable | Потокобезопасность без синхронизации |
+
+### 3. Структура подсистемы (диаграмма классов)
+
+```mermaid
+classDiagram
+    direction TB
+
+    class Rule~T~ {
+        <<interface>>
+        +apply(T value) Optional~String~
+    }
+
+    class Validator~T~ {
+        <<interface>>
+        +validate(T value) ValidationResult~T~
+        +and(Validator other) Validator~T~
+    }
+
+    class RuleBasedValidator~T~ {
+        -List~Rule~ rules
+        +of(List~Rule~ rules) Validator~T~
+        +validate(T value) ValidationResult~T~
+    }
+
+    class BusValidator {
+        -Validator delegate
+        +validate(Bus bus) ValidationResult
+        -routeNumberRule() Rule
+        -modelRule() Rule
+        -mileageRule() Rule
+    }
+
+    class ValidationResult~T~ {
+        -Optional~T~ value
+        -List~String~ errors
+        +of(T value) ValidationResult~T~
+        +failure(List~String~ errors) ValidationResult~T~
+        +isValid() boolean
+        +errors() List~String~
+        +value() Optional~T~
+    }
+
+    class Bus {
+        +routeNumber() int
+        +model() String
+        +mileage() long
+    }
+
+    class CustomArrayList~E~ {
+        +addAll(Collection) boolean
+    }
+
+    Validator <|.. RuleBasedValidator : implements
+    Validator <|.. BusValidator : implements
+    RuleBasedValidator o-- "1..*" Rule : rules, immutable copy
+    BusValidator --> RuleBasedValidator : delegate
+    BusValidator ..> Rule : declares 3 rules as lambdas
+    BusValidator ..> Bus : validates
+    Validator ..> ValidationResult : produces
+    ValidationResult ..> Bus : value when valid, T = Bus
+    Validator ..> CustomArrayList : and() merges error lists
+```
+
+Пояснения к диаграмме:
+
+- `Rule` и `Validator` — функциональные интерфейсы (`@FunctionalInterface`), реализуемые лямбда-выражениями; поэтому конкретные правила (`routeNumberRule` и др.) не показаны как классы — это лямбды, объявленные в `BusValidator`.
+- `RuleBasedValidator` агрегирует список правил (`List.copyOf` — защитная копия, порядок фиксирован).
+- `BusValidator` делегирует всю механику ядру и сам не содержит логики применения правил.
+- `CustomArrayList` (проектная коллекция) используется только в комбинаторе `and` для слияния списков ошибок.
+
+### 4. Основной поток валидации (диаграмма последовательностей)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client (FileBusSource)
+    participant BV as BusValidator
+    participant K as RuleBasedValidator
+    participant R1 as rule: routeNumber
+    participant R2 as rule: model
+    participant R3 as rule: mileage
+    participant VR as ValidationResult
+
+    C->>BV: validate(bus)
+    BV->>K: validate(bus)
+    alt bus == null
+        K->>VR: failure("The object being validated is not specified (null)")
+        K-->>C: Invalid
+    else bus != null
+        loop каждое правило в порядке объявления
+            K->>R1: apply(bus)
+            R1-->>K: Optional.empty / Optional.of(ошибка)
+            K->>R2: apply(bus)
+            R2-->>K: Optional.empty / Optional.of(ошибка)
+            K->>R3: apply(bus)
+            R3-->>K: Optional.empty / Optional.of(ошибка)
+        end
+        Note over K: errors = rules.stream().flatMap(apply).toList()
+        alt errors is empty
+            K->>VR: of(bus)
+        else errors present
+            K->>VR: failure(errors)
+        end
+        K-->>BV: ValidationResult
+    end
+    BV-->>C: ValidationResult
+```
+
+Свойства потока:
+
+- **Порядок ошибок детерминирован**: маршрут → модель → пробег (порядок объявления правил); композиция через `and` добавляет ошибки второго валидатора после первого.
+- **Все правила выполняются всегда** — не останавливаемся на первом нарушении.
+- **Null-вход** обрабатывается до применения правил.
+
+### 5. Композиция валидаторов: `and` (диаграмма последовательностей)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant A as Validator A (this)
+    participant B as Validator B (other)
+    participant L as composed lambda
+
+    C->>A: and(B)
+    Note over A: Objects.requireNonNull(B) — NPE сразу, до validate
+    A-->>C: composed validator
+
+    C->>L: validate(value)
+    L->>A: validate(value)
+    A-->>L: result A
+    Note over L,B: короткого замыкания нет — B выполняется всегда
+    L->>B: validate(value)
+    B-->>L: result B
+    alt оба результата валидны
+        L-->>C: result A (уже содержит валидное значение)
+    else хотя бы один невалиден
+        Note over L: allErrors = errors A + errors B (CustomArrayList)
+        L-->>C: failure(allErrors)
+    end
+```
+
+Контракт `and`:
+
+- возвращает **новый** валидатор, исходные не изменяются;
+- оба валидатора вычисляются при каждом вызове (накопление ошибок важнее экономии);
+- `and(null)` → `NullPointerException` немедленно (ошибка программиста, не данных).
+
+### 6. `ValidationResult` — контракт состояний
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Valid : of value
+    [*] --> Invalid : failure errors
+
+    Valid : value = непустой Optional
+    Valid : errors = пустой список
+    Invalid : value = пустой Optional
+    Invalid : errors = непустой неизменяемый список
+
+    Valid --> [*] : isValid = true
+    Invalid --> [*] : isValid = false
+```
+
+Инварианты класса (гарантируются приватным конструктором + фабриками):
+
+| Инвариант | Обеспечение |
+|---|---|
+| Валидное значение ⇔ пустой список ошибок | `of` создаёт `List.of()`, `failure` требует непустой список |
+| Валидное значение никогда `null` | `of` → `Objects.requireNonNull` (NPE — ошибка программиста, не данных) |
+| Список ошибок неизменяем и изолирован | `List.copyOf` в конструкторе: defensive copy + запрет null-элементов |
+| Фабрика `failure` требует непустой список | `IllegalArgumentException` при `null`/пустом — защита семантики «Invalid означает хотя бы одну ошибку» |
+
+Исключения здесь — часть **API-контракта фабрик** (ошибки использования), а не потока валидации: сам `validate(...)` на любых входных данных исключений не бросает.
+
+### 7. Контракты классов
+
+#### `Rule<T>` — функциональный интерфейс правила
+| Метод | Контракт |
+|---|---|
+| `Optional<String> apply(T value)` | пустой `Optional` — правило соблюдено; `Optional` с текстом — нарушение |
+
+#### `Validator<T>` — функциональный интерфейс валидатора
+| Метод | Контракт |
+|---|---|
+| `ValidationResult<T> validate(T value)` | для `null`-входа — failure, не исключение |
+| `default Validator<T> and(Validator<T> other)` | оба валидатора выполняются всегда; ошибки `this` предшествуют ошибкам `other`; `other == null` → NPE |
+
+#### `RuleBasedValidator<T>` — ядро каркаса
+| Элемент | Контракт |
+|---|---|
+| `static of(List<Rule<T>>)` | фабрика; правила копируются (`List.copyOf`), порядок сохраняется |
+| `validate(T)` | `null` → failure с одним сообщением; иначе — все правила, аккумулирование нарушений; успех → `of(value)`, иначе → `failure(errors)` |
+
+#### `BusValidator` — правила домена
+Обёртка над `RuleBasedValidator`: три static-фабрики возвращают лямбда-правила; `MODEL_PATTERN` прекомпилирован один раз (`Pattern.compile`), диапазон `а-яА-Я` расширен символами `ёЁ`.
+
+## 8. Бизнес-правила для `Bus`
+
+| Поле | Правило | Сообщение (EN, содержит поле и значение) |
+|---|---|---|
+| `routeNumber` | целое в диапазоне **1..999** | "The route number must be between 1 and 999, current value: …" |
+| `model` | не `null`, не blank, длина **2..30** после `strip()`, соответствует `[а-яА-ЯёЁa-zA-Z0-9\-\s]+` | три сообщения: null/blank, длина, недопустимые символы |
+| `mileage` | целое в диапазоне **0..2 000 000** | "Mileage must be between 0 and 2000000, current value: …" |
+
+Особенности правила модели:
+
+- проверяется **нормализованное** значение (`strip()`): `" A"` трактуется как 1-символьная модель, а не валидная 2-символьная;
+- проверки идут в порядке null/blank → длина → паттерн; правило возвращает **только первое нарушение** поля (не более одной ошибки на поле);
+- проверка null/blank здесь обязательна: `Bus` — широкий носитель и ничего не гарантирует.
+
+## 9. Контекст подсистемы в приложении
+
+```mermaid
+flowchart LR
+    subgraph transport["Транспортный слой"]
+        CSV[("CSV-файл")] --> FBS[FileBusSource]
+        FBS --> BC[BusCodec<br/>синтаксис: число полей,<br/>парсинг чисел]
+    end
+    subgraph validation["Слой валидации"]
+        BC -->|Optional of Bus| RBV[BusValidator →<br/>RuleBasedValidator]
+        RBV -->|ValidationResult| FBS
+    end
+    FBS -->|isValid| COLL[CustomArrayList of Bus]
+    FBS -->|warnings: номер строки + ошибки| OUT[PrintStream]
+```
+
+Разделение ответственности: `BusCodec` отвечает за **форму** (строка разбирается или нет), `BusValidator` — за **содержание** (значения допустимы или нет). `FileBusSource` — orchestrator: пропускает валидные записи дальше, невалидные логирует.
+
+## 10. Гарантии и свойства подсистемы
+
+- **Потокобезопасность**: `BusValidator`, `RuleBasedValidator`, `ValidationResult` не имеют изменяемого состояния после создания; инстансы переиспользуемы concurrently.
+- **Детерминизм**: порядок ошибок фиксирован (порядок правил; в `and` — `this` затем `other`).
+- **Отсутствие исключений в потоке валидации** при любых данных, включая `null`.
+- **Иммутабельность результата**: список ошибок нельзя изменить снаружи; результат изолирован от исходного списка.
+
+## 11. Точки расширения
+
+| Сценарий | Как реализуется |
+|---|---|
+| Валидатор для нового класса `X` | `RuleBasedValidator.of(List.of(ruleX1, ruleX2, …))` — 1 строка на правило |
+| Усиление валидации Bus | `busValidator.and(extraValidator)` — ошибки накапливаются из обоих |
+| Переход к структурированным ошибкам | замена `String` → тип `ValidationError` в `Rule`/`ValidationResult` (интерфейсы не меняют форму) |
+| Локализация сообщений | фабрики правил — единственное место, где формируются тексты |
+
+---
+
+Замечание к диаграммам: у участников sequence-диаграммы `rule: routeNumber` и т.п. — это лямбда-объекты, создаваемые static-фабриками `BusValidator`; как классы они не существуют, что отражает суть каркаса — правила объявляются декларативно, а не наследованием.
 
 ## 7. Кодек и форматы файлов
 
