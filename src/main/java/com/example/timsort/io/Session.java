@@ -8,19 +8,22 @@ import java.util.Optional;
 
 public class Session {
 
+    private Optional<CustomArrayList<Bus>> current = Optional.empty();
+    private Optional<List<Bus>> lastResult = Optional.empty();
+
     public Optional<CustomArrayList<Bus>> getCurrent() {
-        throw new UnsupportedOperationException("Not implemented yet");
+        return current;
     }
 
     public void setCurrent(CustomArrayList<Bus> current) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        this.current = Optional.ofNullable(current);
     }
 
     public Optional<List<Bus>> getLastResult() {
-        throw new UnsupportedOperationException("Not implemented yet");
+        return lastResult;
     }
 
     public void setLastResult(List<Bus> lastResult) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        this.lastResult = Optional.ofNullable(lastResult);
     }
 }

@@ -48,7 +48,7 @@ class ConsoleMenuTest {
 
         assertThrows(ExitException.class, () -> menu.run());
 
-        verify(io, atLeastOnce()).print(contains("Ошибка"));
+        verify(io, atLeastOnce()).print(contains("Error"));
         assertEquals(1, exitCounter.get());
     }
 
@@ -65,7 +65,7 @@ class ConsoleMenuTest {
 
         assertThrows(ExitException.class, () -> menu.run());
 
-        verify(io, atLeastOnce()).print(contains("Ошибка"));
+        verify(io, atLeastOnce()).print(contains("Error"));
         assertEquals(1, exitCounter.get());
     }
 
@@ -122,7 +122,7 @@ class ConsoleMenuTest {
 
         assertThrows(ExitException.class, () -> menu.run());
 
-        verify(io, atLeastOnce()).print(contains("Ошибка"));
+        verify(io, atLeastOnce()).print(contains("Error"));
     }
 
     @Test
