@@ -10,7 +10,7 @@ class BusBuilderTest {
   private static final String MODEL = "LiAZ-5256";
   private static final long MILEAGE = 250000L;
 
-  // === Успешная сборка ===
+  // === Successful build ===
 
   @Test
   void when_allFieldsSet_then_buildReturnsValidBus() {

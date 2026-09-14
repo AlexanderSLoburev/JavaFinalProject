@@ -8,7 +8,7 @@ public final class BusValidationConstants {
   public static final int MIN_MODEL_LENGTH = 2;
   public static final int MAX_MODEL_LENGTH = 30;
   public static final Pattern MODEL_PATTERN =
-      Pattern.compile("[а-яА-ЯёЁa-zA-Z0-9\\-\\s]+");
+      Pattern.compile("[а-яА-ЯёЁa-zA-Z0-9\\- \\t]+");
   public static final long MIN_MILEAGE = 0;
   public static final long MAX_MILEAGE = 2_000_000;
 

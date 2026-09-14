@@ -2,8 +2,8 @@ package com.example.timsort.source;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.example.timsort.io.ConsoleIO;
 import com.example.timsort.collection.CustomArrayList;
+import com.example.timsort.io.ConsoleIO;
 import com.example.timsort.model.Bus;
 import com.example.timsort.validation.BusValidator;
 import com.example.timsort.validation.Validator;
@@ -221,6 +221,11 @@ class ManualBusSourceTest {
     @Override
     public void print(String message) {
       outputs.add(message);
+    }
+
+    @Override
+    public void println(String message) {
+      outputs.add(message + "\n");
     }
 
     @Override

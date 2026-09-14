@@ -3,11 +3,11 @@ package com.example.timsort.validation;
 import com.example.timsort.model.Bus;
 import java.util.List;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
  * Validator for {@link Bus}: route number 1..999, model 2..30 chars
- * (Cyrillic/Latin letters, digits, hyphen, space), mileage 0..2 000 000.
+ * (Cyrillic/Latin letters, digits, hyphen, space, tab), mileage
+ * 0..2 000 000.
  *
  * <p>Rule application and error accumulation live in
  * RuleBasedValidator; this class only declares the rules.</p>
@@ -44,6 +44,11 @@ public final class BusValidator implements Validator<Bus> {
 
   /**
    * Model: non-null, non-blank, 2..30 characters, allowed symbols only.
+   *
+   * <p>WHY the pattern lives in BusValidationConstants as a precompiled
+   * Pattern: compiling once at class load avoids recompilation per call,
+   * and a single shared constant keeps the format description in one
+   * place.</p>
    */
   private static Rule<Bus> modelRule() {
     return bus -> {
