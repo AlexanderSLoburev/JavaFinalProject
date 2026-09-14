@@ -1,6 +1,5 @@
 package com.example.timsort.collection;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,8 +13,6 @@ import com.example.timsort.model.Bus;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InvalidObjectException;
-import java.io.NotSerializableException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.AbstractList;
@@ -86,102 +83,6 @@ class CustomArrayListTest {
     for (int i = 0; i < expected.length; i++) {
       assertEquals(bus(expected[i]), actual.get(i), "element at index " + i);
     }
-  }
-
-  /**
-   * WHY a record instead of Bus: Bus is not Serializable, so it cannot
-   * cross an ObjectOutputStream. Records implement Serializable and are
-   * the smallest possible payload for round-trip tests.
-   */
-  private record Route(int number) {
-  }
-
-  private static byte[] serialize(Object object) throws IOException {
-    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    try (ObjectOutputStream out = new ObjectOutputStream(buffer)) {
-      out.writeObject(object);
-    }
-    return buffer.toByteArray();
-  }
-
-  @SuppressWarnings("unchecked")
-  private static <T> T deserialize(byte[] bytes)
-      throws IOException, ClassNotFoundException {
-    try (ObjectInputStream in =
-             new ObjectInputStream(new ByteArrayInputStream(bytes))) {
-      return (T)in.readObject();
-    }
-  }
-
-  /**
-   * WHY byte surgery: readObject validation can only be exercised by a
-   * genuinely corrupt stream. The custom serialized form of an EMPTY list
-   * contains exactly one TC_BLOCKDATA (0x77) block of length 4 holding the
-   * size int (zero). We locate that header and rewrite the size field.
-   */
-  private static byte[] withSizePatchedTo(byte[] stream, int fakeSize) {
-    for (int i = 0; i + 6 <= stream.length; i++) {
-      boolean blockHeader = stream[i] == (byte)0x77 && stream[i + 1] == 0x04;
-      boolean zeroSize = stream[i + 2] == 0 && stream[i + 3] == 0 &&
-                         stream[i + 4] == 0 && stream[i + 5] == 0;
-      if (blockHeader && zeroSize) {
-        byte[] patched = stream.clone();
-        patched[i + 2] = (byte)(fakeSize >>> 24);
-        patched[i + 3] = (byte)(fakeSize >>> 16);
-        patched[i + 4] = (byte)(fakeSize >>> 8);
-        patched[i + 5] = (byte)fakeSize;
-        return patched;
-      }
-    }
-    throw new AssertionError("size block not found in serialized stream");
-  }
-
-  /**
-   * WHY byte surgery: Bus.readObject revalidates the constructor's
-   * invariants, but deserialization is the only path that bypasses the
-   * builder, so that validation can only be exercised with a genuinely
-   * corrupt stream.
-   *
-   * WHY this anchor (not a TC_BLOCKDATA search): a TC_BLOCKDATA (0x77)
-   * block appears only when the class HAS a custom writeObject — that is
-   * why withSizePatchedTo works for CustomArrayList, whose writeObject
-   * emits writeInt(size). Bus has no writeObject, so its primitive fields
-   * are written RAW, with no marker bytes. The reliable anchor instead is
-   * the end of the class descriptor chain: TC_ENDBLOCKDATA (0x78)
-   * immediately followed by TC_NULL (0x70) — Bus's superclass is
-   * java.lang.Object, which has no descriptor of its own. After that pair
-   * the object's values follow: primitive fields first, in field-name
-   * order — mileage (long, 8 bytes), then routeNumber (int, 4 bytes) —
-   * and then the model field as a fresh TC_STRING (0x74). The search runs
-   * from the END of the stream so a coincidental 0x78 0x70 inside the
-   * serialVersionUID can never win, and every candidate is verified
-   * structurally before patching.
-   */
-  private static byte[] withBusRouteNumberPatchedTo(byte[] stream,
-                                                    int fakeRoute) {
-    for (int i = stream.length - 2; i >= 0; i--) {
-      if (stream[i] != (byte)0x78 || stream[i + 1] != (byte)0x70) {
-        continue; // not the descriptor-chain end — keep searching
-      }
-      // Structural sanity check: 'model' must follow the 12 bytes of
-      // primitive data as a TC_STRING. If Bus ever gains a writeObject or
-      // a new primitive field, the layout after the anchor changes and
-      // this guard fails loudly instead of the test silently patching
-      // the wrong bytes.
-      if (i + 14 >= stream.length || stream[i + 14] != (byte)0x74) {
-        continue; // spurious match inside earlier stream data
-      }
-      byte[] patched = stream.clone();
-      // i+2..i+9 hold mileage (long); i+10..i+13 hold routeNumber (int)
-      patched[i + 10] = (byte)(fakeRoute >>> 24);
-      patched[i + 11] = (byte)(fakeRoute >>> 16);
-      patched[i + 12] = (byte)(fakeRoute >>> 8);
-      patched[i + 13] = (byte)fakeRoute;
-      return patched;
-    }
-    throw new AssertionError(
-        "Bus primitive fields not found after TC_ENDBLOCKDATA/TC_NULL "
-        + "anchor — did Bus gain a writeObject or change its fields?");
   }
 
   // ---------- tests ----------

@@ -1,12 +1,11 @@
 package com.example.timsort.codec;
 
-import com.example.timsort.model.Bus;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.DisplayName;
-
-import java.util.Optional;
-
 import static org.junit.jupiter.api.Assertions.*;
+
+import com.example.timsort.model.Bus;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+
 
 class BusCodecTest {
 
@@ -82,10 +81,10 @@ class BusCodecTest {
   @Test
   void shouldEncodeBusToCsvString() {
     Bus bus = Bus.builder()
-            .routeNumber(42)
-            .model("ЛиАЗ-5292")
-            .mileage(150000L)
-            .build();
+                  .routeNumber(42)
+                  .model("ЛиАЗ-5292")
+                  .mileage(150000L)
+                  .build();
 
     String result = codec.encode(bus);
 
@@ -95,10 +94,10 @@ class BusCodecTest {
   @Test
   void shouldRoundTripBus() {
     Bus original = Bus.builder()
-            .routeNumber(73)
-            .model("КАМАЗ-6282")
-            .mileage(250000L)
-            .build();
+                       .routeNumber(73)
+                       .model("КАМАЗ-6282")
+                       .mileage(250000L)
+                       .build();
 
     String encoded = codec.encode(original);
     Optional<Bus> decoded = codec.decode(encoded);
@@ -110,11 +109,18 @@ class BusCodecTest {
   @Test
   void shouldRoundTripMultipleBuses() {
     Bus[] buses = {
-            Bus.builder().routeNumber(1).model("ПАЗ-3204").mileage(10000L).build(),
-            Bus.builder().routeNumber(15).model("ЛиАЗ-5292").mileage(50000L).build(),
-            Bus.builder().routeNumber(99).model("Волгабас-5270").mileage(999999L).build(),
-            Bus.builder().routeNumber(150).model("МАЗ-206").mileage(0L).build()
-    };
+        Bus.builder().routeNumber(1).model("ПАЗ-3204").mileage(10000L).build(),
+        Bus.builder()
+            .routeNumber(15)
+            .model("ЛиАЗ-5292")
+            .mileage(50000L)
+            .build(),
+        Bus.builder()
+            .routeNumber(99)
+            .model("Волгабас-5270")
+            .mileage(999999L)
+            .build(),
+        Bus.builder().routeNumber(150).model("МАЗ-206").mileage(0L).build()};
 
     for (Bus original : buses) {
       String encoded = codec.encode(original);
