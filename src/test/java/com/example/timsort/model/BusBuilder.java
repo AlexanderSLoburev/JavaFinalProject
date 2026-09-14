@@ -10,7 +10,7 @@ class BusBuilderTest {
   private static final String MODEL = "LiAZ-5256";
   private static final long MILEAGE = 250000L;
 
-  // === Успешная сборка ===
+  // === Successful build ===
 
   @Test
   void when_allFieldsSet_then_buildReturnsValidBus() {
@@ -26,30 +26,45 @@ class BusBuilderTest {
     assertEquals(MILEAGE, bus.mileage());
   }
 
-  // === Validation parameters in setters ===
+  // === Raw values are accepted: business rules live in BusValidator ===
+  // Why: if the builder rejected them, those values could never reach
+  // the validator and its rules would become untestable.
 
   @Test
-  void when_routeNumberNegative_then_throwsIllegalArgumentException() {
-    Bus.BusBuilder builder = Bus.builder();
-    assertThrows(IllegalArgumentException.class, () -> builder.routeNumber(-1));
+  void when_routeNumberNegative_then_builderAcceptsIt() {
+    Bus bus =
+        Bus.builder().routeNumber(-1).model(MODEL).mileage(MILEAGE).build();
+    assertEquals(-1, bus.routeNumber());
   }
 
   @Test
-  void when_modelNull_then_throwsIllegalArgumentException() {
-    Bus.BusBuilder builder = Bus.builder();
-    assertThrows(IllegalArgumentException.class, () -> builder.model(null));
+  void when_modelNull_then_builderAcceptsIt() {
+    Bus bus = Bus.builder()
+                  .routeNumber(ROUTE_NUMBER)
+                  .model(null)
+                  .mileage(MILEAGE)
+                  .build();
+    assertNull(bus.model());
   }
 
   @Test
-  void when_modelBlank_then_throwsIllegalArgumentException() {
-    Bus.BusBuilder builder = Bus.builder();
-    assertThrows(IllegalArgumentException.class, () -> builder.model("   "));
+  void when_modelBlank_then_builderAcceptsIt() {
+    Bus bus = Bus.builder()
+                  .routeNumber(ROUTE_NUMBER)
+                  .model("   ")
+                  .mileage(MILEAGE)
+                  .build();
+    assertEquals("   ", bus.model());
   }
 
   @Test
-  void when_mileageNegative_then_throwsIllegalArgumentException() {
-    Bus.BusBuilder builder = Bus.builder();
-    assertThrows(IllegalArgumentException.class, () -> builder.mileage(-1L));
+  void when_mileageNegative_then_builderAcceptsIt() {
+    Bus bus = Bus.builder()
+                  .routeNumber(ROUTE_NUMBER)
+                  .model(MODEL)
+                  .mileage(-1L)
+                  .build();
+    assertEquals(-1L, bus.mileage());
   }
 
   // === Missed fields ===

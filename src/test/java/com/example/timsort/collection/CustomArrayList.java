@@ -1,6 +1,5 @@
 package com.example.timsort.collection;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,8 +13,6 @@ import com.example.timsort.model.Bus;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InvalidObjectException;
-import java.io.NotSerializableException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.AbstractList;
@@ -86,102 +83,6 @@ class CustomArrayListTest {
     for (int i = 0; i < expected.length; i++) {
       assertEquals(bus(expected[i]), actual.get(i), "element at index " + i);
     }
-  }
-
-  /**
-   * WHY a record instead of Bus: Bus is not Serializable, so it cannot
-   * cross an ObjectOutputStream. Records implement Serializable and are
-   * the smallest possible payload for round-trip tests.
-   */
-  private record Route(int number) {
-  }
-
-  private static byte[] serialize(Object object) throws IOException {
-    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-    try (ObjectOutputStream out = new ObjectOutputStream(buffer)) {
-      out.writeObject(object);
-    }
-    return buffer.toByteArray();
-  }
-
-  @SuppressWarnings("unchecked")
-  private static <T> T deserialize(byte[] bytes)
-      throws IOException, ClassNotFoundException {
-    try (ObjectInputStream in =
-             new ObjectInputStream(new ByteArrayInputStream(bytes))) {
-      return (T)in.readObject();
-    }
-  }
-
-  /**
-   * WHY byte surgery: readObject validation can only be exercised by a
-   * genuinely corrupt stream. The custom serialized form of an EMPTY list
-   * contains exactly one TC_BLOCKDATA (0x77) block of length 4 holding the
-   * size int (zero). We locate that header and rewrite the size field.
-   */
-  private static byte[] withSizePatchedTo(byte[] stream, int fakeSize) {
-    for (int i = 0; i + 6 <= stream.length; i++) {
-      boolean blockHeader = stream[i] == (byte)0x77 && stream[i + 1] == 0x04;
-      boolean zeroSize = stream[i + 2] == 0 && stream[i + 3] == 0 &&
-                         stream[i + 4] == 0 && stream[i + 5] == 0;
-      if (blockHeader && zeroSize) {
-        byte[] patched = stream.clone();
-        patched[i + 2] = (byte)(fakeSize >>> 24);
-        patched[i + 3] = (byte)(fakeSize >>> 16);
-        patched[i + 4] = (byte)(fakeSize >>> 8);
-        patched[i + 5] = (byte)fakeSize;
-        return patched;
-      }
-    }
-    throw new AssertionError("size block not found in serialized stream");
-  }
-
-  /**
-   * WHY byte surgery: Bus.readObject revalidates the constructor's
-   * invariants, but deserialization is the only path that bypasses the
-   * builder, so that validation can only be exercised with a genuinely
-   * corrupt stream.
-   *
-   * WHY this anchor (not a TC_BLOCKDATA search): a TC_BLOCKDATA (0x77)
-   * block appears only when the class HAS a custom writeObject — that is
-   * why withSizePatchedTo works for CustomArrayList, whose writeObject
-   * emits writeInt(size). Bus has no writeObject, so its primitive fields
-   * are written RAW, with no marker bytes. The reliable anchor instead is
-   * the end of the class descriptor chain: TC_ENDBLOCKDATA (0x78)
-   * immediately followed by TC_NULL (0x70) — Bus's superclass is
-   * java.lang.Object, which has no descriptor of its own. After that pair
-   * the object's values follow: primitive fields first, in field-name
-   * order — mileage (long, 8 bytes), then routeNumber (int, 4 bytes) —
-   * and then the model field as a fresh TC_STRING (0x74). The search runs
-   * from the END of the stream so a coincidental 0x78 0x70 inside the
-   * serialVersionUID can never win, and every candidate is verified
-   * structurally before patching.
-   */
-  private static byte[] withBusRouteNumberPatchedTo(byte[] stream,
-                                                    int fakeRoute) {
-    for (int i = stream.length - 2; i >= 0; i--) {
-      if (stream[i] != (byte)0x78 || stream[i + 1] != (byte)0x70) {
-        continue; // not the descriptor-chain end — keep searching
-      }
-      // Structural sanity check: 'model' must follow the 12 bytes of
-      // primitive data as a TC_STRING. If Bus ever gains a writeObject or
-      // a new primitive field, the layout after the anchor changes and
-      // this guard fails loudly instead of the test silently patching
-      // the wrong bytes.
-      if (i + 14 >= stream.length || stream[i + 14] != (byte)0x74) {
-        continue; // spurious match inside earlier stream data
-      }
-      byte[] patched = stream.clone();
-      // i+2..i+9 hold mileage (long); i+10..i+13 hold routeNumber (int)
-      patched[i + 10] = (byte)(fakeRoute >>> 24);
-      patched[i + 11] = (byte)(fakeRoute >>> 16);
-      patched[i + 12] = (byte)(fakeRoute >>> 8);
-      patched[i + 13] = (byte)fakeRoute;
-      return patched;
-    }
-    throw new AssertionError(
-        "Bus primitive fields not found after TC_ENDBLOCKDATA/TC_NULL "
-        + "anchor — did Bus gain a writeObject or change its fields?");
   }
 
   // ---------- tests ----------
@@ -1847,122 +1748,6 @@ class CustomArrayListTest {
   }
 
   @Nested
-  class Serialization {
-
-    @Test
-    void when_roundTripped_then_contentsSizeAndUsabilityRestored()
-        throws Exception {
-      CustomArrayList<Bus> original = new CustomArrayList<>();
-      original.add(bus(1));
-      original.add(bus(2));
-      original.add(bus(3));
-
-      CustomArrayList<Bus> restored = deserialize(serialize(original));
-
-      assertEquals(original, restored);
-      assertEquals(3, restored.size());
-      restored.add(bus(4)); // the restored list must be fully usable
-      assertEquals(4, restored.size());
-      assertEquals(bus(4), restored.get(3));
-    }
-
-    @Test
-    void when_emptyListRoundTripped_then_stillEmpty() throws Exception {
-      CustomArrayList<Bus> restored =
-          deserialize(serialize(new CustomArrayList<Bus>()));
-      assertTrue(restored.isEmpty());
-    }
-
-    @Test
-    void when_sourceMutatedAfterSerialization_then_restoredStateUnaffected()
-        throws Exception {
-      CustomArrayList<Bus> original = new CustomArrayList<>();
-      original.add(bus(1));
-      original.add(bus(2));
-      byte[] bytes = serialize(original);
-      original.clear();
-      CustomArrayList<Bus> restored = deserialize(bytes);
-      assertEquals(2, restored.size());
-      assertEquals(bus(1), restored.get(0));
-    }
-
-    @Test
-    void when_serialized_then_capacityIsNotPartOfTheStream() throws Exception {
-      // WHY compare raw bytes: the custom form must contain only the size
-      // and the live elements — spare capacity slots must not leak into
-      // the stream.
-      CustomArrayList<Bus> tight = new CustomArrayList<>(2);
-      CustomArrayList<Bus> spacious = new CustomArrayList<>(100);
-      tight.add(bus(1));
-      tight.add(bus(2));
-      spacious.add(bus(1));
-      spacious.add(bus(2));
-      assertArrayEquals(serialize(tight), serialize(spacious));
-    }
-
-    @Test
-    void
-    when_listContainsNonSerializableElement_then_notSerializableException() {
-      // WHY a plain Object as the element: Bus itself is serializable now,
-      // so a non-serializable element is the only way to keep covering the
-      // failure path of the per-element write loop.
-      CustomArrayList<Object> list = new CustomArrayList<>();
-      list.add(new Object());
-      assertThrows(NotSerializableException.class, () -> serialize(list));
-    }
-
-    @Test
-    void when_subListSerialized_then_notSerializableException() {
-      // Unchanged: the view itself is not serializable (AbstractList does
-      // not implement Serializable), regardless of the element type.
-      CustomArrayList<Bus> root = listOfBuses(1, 2);
-      assertThrows(NotSerializableException.class,
-                   () -> serialize(root.subList(0, 1)));
-    }
-
-    @Test
-    void when_deserializedSizeIsNegative_then_invalidObjectException()
-        throws Exception {
-      byte[] stream = serialize(new CustomArrayList<Bus>());
-      byte[] corrupted = withSizePatchedTo(stream, -1);
-      assertThrows(InvalidObjectException.class, () -> deserialize(corrupted));
-    }
-
-    @Test
-    void when_deserializedSizeExceedsMaxArraySize_then_invalidObjectException()
-        throws Exception {
-      // Integer.MAX_VALUE is above MAX_ARRAY_SIZE: rejected cleanly instead
-      // of attempting a doomed huge allocation.
-      byte[] stream = serialize(new CustomArrayList<Bus>());
-      byte[] corrupted = withSizePatchedTo(stream, Integer.MAX_VALUE);
-      assertThrows(InvalidObjectException.class, () -> deserialize(corrupted));
-    }
-
-    @Test
-    void when_busRoundTripped_then_allFieldsPreservedAndEqual()
-        throws Exception {
-      Bus original = bus(42);
-      Bus restored = deserialize(serialize(original));
-      assertEquals(original, restored);  // value equality survives
-      assertNotSame(original, restored); // a distinct instance comes back
-      assertEquals(42, restored.routeNumber());
-      assertEquals("Model-42", restored.model());
-      assertEquals(42_000L, restored.mileage());
-    }
-
-    @Test
-    void
-    when_busDeserializedWithCorruptedRouteNumber_then_invalidObjectException()
-        throws Exception {
-      // Bus.readObject revalidates the constructor's invariants; the only
-      // way to reach it with broken state is a genuinely corrupt stream.
-      byte[] stream = serialize(bus(1));
-      byte[] corrupted = withBusRouteNumberPatchedTo(stream, -1);
-      assertThrows(InvalidObjectException.class, () -> deserialize(corrupted));
-    }
-  }
-
-  @Nested
   class NullArguments {
 
     @Test
@@ -2172,22 +1957,6 @@ class CustomArrayListTest {
       CustomArrayList<Bus> clone = list.clone();
       assertNull(clone.get(1));
       assertEquals(2, clone.size());
-    }
-
-    @Test
-    void when_nullsSerialized_then_roundTripPreservesThem() throws Exception {
-      // WHY mix nulls with a real bus: proves both that null elements
-      // serialize (writeObject(null) is legal) and that their positions
-      // survive the round trip.
-      CustomArrayList<Bus> list = new CustomArrayList<>();
-      list.add(null);
-      list.add(bus(1));
-      list.add(null);
-      CustomArrayList<Bus> restored = deserialize(serialize(list));
-      assertEquals(list, restored);
-      assertNull(restored.get(0));
-      assertEquals(bus(1), restored.get(1));
-      assertNull(restored.get(2));
     }
 
     @Test

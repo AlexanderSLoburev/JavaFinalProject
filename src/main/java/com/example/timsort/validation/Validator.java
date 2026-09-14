@@ -1,42 +1,48 @@
 package com.example.timsort.validation;
 
-import java.util.ArrayList;
+import com.example.timsort.collection.CustomArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
- * Интерфейс валидатора с возможностью композиции.
+ * Validator contract with composition support.
  *
- * @param <T> тип валидируемого объекта
+ * @param <T> type of the validated object
  */
+@FunctionalInterface
 public interface Validator<T> {
 
-    /**
-     * Валидирует объект.
-     *
-     * @param value объект для проверки
-     * @return результат валидации
-     */
-    ValidationResult<T> validate(T value);
+  /**
+   * Validates the object. Implementations are expected to return a
+   * failure result for null input instead of throwing.
+   */
+  ValidationResult<T> validate(T value);
 
-    /**
-     * Комбинирует этот валидатор с другим, накапливая ошибки.
-     *
-     * @param other другой валидатор того же типа
-     * @return новый валидатор, применяющий оба правила
-     */
-    default Validator<T> and(Validator<T> other) {
-        return value -> {
-            ValidationResult<T> first = this.validate(value);
-            ValidationResult<T> second = other.validate(value);
+  /**
+   * Combines this validator with another one, accumulating errors.
+   *
+   * <p>Both validators always run, so the caller
+   * receives every violation at once. Errors of {@code this} validator
+   * come first, then the errors of {@code other}.</p>
+   *
+   * @param other the other validator
+   * @return a new validator applying both
+   * @throws NullPointerException if other is null
+   */
+  default Validator<T> and(Validator<T> other) {
+    Objects.requireNonNull(other, "other validator must not be null");
 
-            if (first.isValid() && second.isValid()) {
-                return ValidationResult.of(value);
-            }
+    return value -> {
+      ValidationResult<T> first = this.validate(value);
+      ValidationResult<T> second = other.validate(value);
 
-            List<String> allErrors = new ArrayList<>();
-            allErrors.addAll(first.errors());
-            allErrors.addAll(second.errors());
-            return ValidationResult.failure(allErrors);
-        };
-    }
+      if (first.isValid() && second.isValid()) {
+        return first;
+      }
+
+      List<String> allErrors = new CustomArrayList<>(first.errors());
+      allErrors.addAll(second.errors());
+      return ValidationResult.failure(allErrors);
+    };
+  }
 }

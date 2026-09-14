@@ -1,118 +1,150 @@
 package com.example.timsort.source;
 
-import com.example.timsort.app.ConsoleIO;
+import com.example.timsort.io.ConsoleIO;
 import com.example.timsort.collection.CustomArrayList;
 import com.example.timsort.model.Bus;
+import com.example.timsort.validation.BusValidationConstants;
 import com.example.timsort.validation.ValidationResult;
 import com.example.timsort.validation.Validator;
+import java.util.Objects;
 
 /**
- * Источник данных, запрашивающий ввод автобусов у пользователя через консоль.
- * Реализует паттерн Стратегия (DataSource).
+ * Data source that asks the user to enter buses via the console.
+ * Implements the Strategy pattern (DataSource).
+ *
+ * <p>WHY the validator is injected: semantic rules (ranges, model
+ * format) have a single source of truth — the validator; this class
+ * only orchestrates the dialog and the retries.</p>
  */
 public class ManualBusSource implements DataSource<Bus> {
 
-    private static final int MAX_ATTEMPTS = 3;
+  /** Attempts per bus before the element is skipped. */
+  private static final int MAX_ATTEMPTS = 3;
 
-    private final ConsoleIO console;
-    private final Validator<Bus> validator;
+  private final ConsoleIO console;
+  private final Validator<Bus> validator;
 
-    /**
-     * Конструктор.
-     *
-     * @param console   интерфейс для взаимодействия с консолью
-     * @param validator валидатор для проверки введённых данных
-     * @throws IllegalArgumentException если любой из параметров null
-     */
-    public ManualBusSource(ConsoleIO console, Validator<Bus> validator) {
-        if (console == null) {
-            throw new IllegalArgumentException("ConsoleIO не должен быть null");
-        }
-        if (validator == null) {
-            throw new IllegalArgumentException("Validator не должен быть null");
-        }
-        this.console = console;
-        this.validator = validator;
+  /**
+   * Constructor.
+   *
+   * @param console   console interaction adapter
+   * @param validator validator for the entered data
+   * @throws NullPointerException if any parameter is null
+   */
+  public ManualBusSource(ConsoleIO console, Validator<Bus> validator) {
+    this.console = Objects.requireNonNull(console, "console must not be null");
+    this.validator =
+        Objects.requireNonNull(validator, "validator must not be null");
+  }
+
+  /**
+   * Asks the user for {@code count} buses. Each bus gets up to
+   * {@value #MAX_ATTEMPTS} attempts; an exhausted element is skipped.
+   * A closed input stream (EOF) terminates the whole dialog and returns
+   * whatever has been collected so far.
+   *
+   * @param count number of objects to request (must be >= 0)
+   * @return successfully entered buses
+   * @throws IllegalArgumentException if count is negative
+   */
+  @Override
+  public CustomArrayList<Bus> provide(int count) {
+    if (count < 0) {
+      throw new IllegalArgumentException("count must not be negative: " +
+                                         count);
     }
 
-    /**
-     * Запрашивает у пользователя count объектов Bus.
-     * Для каждого объекта даётся MAX_ATTEMPTS попыток.
-     * При исчерпании попыток элемент пропускается.
-     *
-     * @param count количество запрошенных объектов (должно быть >= 0)
-     * @return коллекция успешно введённых автобусов
-     * @throws IllegalArgumentException если count отрицательный
-     */
-    @Override
-    public CustomArrayList<Bus> provide(int count) {
-        if (count < 0) {
-            throw new IllegalArgumentException("count не может быть отрицательным: " + count);
-        }
+    CustomArrayList<Bus> result = new CustomArrayList<>();
 
-        CustomArrayList<Bus> result = new CustomArrayList<>();
-
-        for (int i = 0; i < count; i++) {
-            console.print("\n--- Ввод автобуса " + (i + 1) + " из " + count + " ---");
-            Bus bus = readBusWithRetries();
-
-            if (bus != null) {
-                result.add(bus);
-            } else {
-                console.print("Превышено количество попыток. Элемент пропущен.");
-            }
-        }
-
+    for (int i = 0; i < count; i++) {
+      console.print("\n--- Bus " + (i + 1) + " of " + count + " ---");
+      Bus bus;
+      try {
+        bus = readBusWithRetries();
+      } catch (InputClosedSignal e) {
+        console.print("Input closed. Entered " + result.size() + " of " +
+                      count + " buses.");
         return result;
+      }
+
+      if (bus != null) {
+        result.add(bus);
+      } else {
+        console.print("Attempts exceeded. The element is skipped.");
+      }
     }
 
-    /**
-     * Пытается считать и валидировать один объект Bus с ограничением попыток.
-     *
-     * @return валидный объект Bus или null, если попытки исчерпаны
-     */
-    private Bus readBusWithRetries() {
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            try {
-                console.print("Введите номер маршрута (1-999): ");
-                String routeStr = console.readLine();
-                int routeNumber = Integer.parseInt(routeStr.trim());
+    return result;
+  }
 
-                console.print("Введите модель автобуса: ");
-                String model = console.readLine();
-                if (model == null) {
-                    model = "";
-                }
-                model = model.trim();
+  /**
+   * Reads and validates one bus with a bounded number of attempts.
+   *
+   * @return a valid bus, or null when the attempts are exhausted
+   * @throws InputClosedSignal when the input stream is closed (EOF)
+   */
+  private Bus readBusWithRetries() {
+    for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        // keep the hints in sync with the BusValidator ranges
+        console.print("Enter the route number (" +
+                      BusValidationConstants.MAX_ROUTE_NUMBER + "-" +
+                      BusValidationConstants.MAX_ROUTE_NUMBER + "): ");
+        int routeNumber = Integer.parseInt(readRequiredLine().trim());
 
-                console.print("Введите пробег (0-2000000): ");
-                String mileageStr = console.readLine();
-                long mileage = Long.parseLong(mileageStr.trim());
+        console.print("Enter the bus model: ");
+        // UI-level normalization; the validator applies its own strip() too
+        String model = readRequiredLine().trim();
 
-                Bus candidate = Bus.builder()
-                        .routeNumber(routeNumber)
-                        .model(model)
-                        .mileage(mileage)
-                        .build();
+        console.print("Enter the mileage (" +
+                      BusValidationConstants.MIN_MILEAGE + "-" +
+                      BusValidationConstants.MAX_MILEAGE + "): ");
+        long mileage = Long.parseLong(readRequiredLine().trim());
 
-                ValidationResult<Bus> validation = validator.validate(candidate);
-                if (validation.isValid()) {
-                    return candidate;
-                } else {
-                    console.print("Ошибка валидации: " + String.join(", ", validation.errors()));
-                }
-            } catch (NumberFormatException e) {
-                console.print("Ошибка: введено некорректное число. Попробуйте снова.");
-            } catch (IllegalArgumentException e) {
-                console.print("Ошибка создания автобуса: " + e.getMessage());
-            } catch (NullPointerException e) {
-                console.print("Ошибка: ввод прерван или пуст.");
-            }
+        Bus candidate = Bus.builder()
+                            .routeNumber(routeNumber)
+                            .model(model)
+                            .mileage(mileage)
+                            .build();
 
-            if (attempt < MAX_ATTEMPTS) {
-                console.print("Осталось попыток: " + (MAX_ATTEMPTS - attempt));
-            }
+        ValidationResult<Bus> validation = validator.validate(candidate);
+        if (validation.isValid()) {
+          return candidate;
         }
-        return null;
+        console.print("Validation error: " +
+                      String.join(", ", validation.errors()));
+
+      } catch (NumberFormatException e) {
+        console.print("Error: not a valid number. Try again.");
+      }
+
+      if (attempt < MAX_ATTEMPTS) {
+        console.print("Attempts left: " + (MAX_ATTEMPTS - attempt));
+      }
     }
+    return null;
+  }
+
+  /**
+   * WHY a signal exception instead of null checks at every read site:
+   * EOF must terminate the whole dialog, not just one field — the signal
+   * unwinds from any depth of the input scenario at once and is caught
+   * once, in provide().
+   */
+  private String readRequiredLine() {
+    String line = console.readLine();
+    if (line == null) {
+      throw new InputClosedSignal();
+    }
+    return line;
+  }
+
+  /** Terminal signal: the input stream is closed (readLine() returned null). */
+  private static final class InputClosedSignal extends RuntimeException {
+
+    InputClosedSignal() {
+      // WHY no stack trace: a control-flow signal, never meant for logs
+      super("input closed", null, false, false);
+    }
+  }
 }
