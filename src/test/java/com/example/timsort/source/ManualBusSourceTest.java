@@ -2,7 +2,7 @@ package com.example.timsort.source;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.example.timsort.app.ConsoleIO;
+import com.example.timsort.io.ConsoleIO;
 import com.example.timsort.collection.CustomArrayList;
 import com.example.timsort.model.Bus;
 import com.example.timsort.validation.BusValidator;
