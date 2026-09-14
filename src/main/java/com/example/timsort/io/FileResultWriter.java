@@ -69,8 +69,8 @@ public class FileResultWriter<T> implements ResultWriter<T> {
    *
    * @param path        path to the result file
    * @param formatter   converts an element to its output line; must not
-   *        be null and must not return null. May throw — in that case
-   *        the file stays untouched
+   *        be null and must not return null — a null return is rejected
+   *        with a NullPointerException naming the offending item
    * @param description shown in the block header, e.g. "sorted by
    *        mileage"; may be empty or null (treated as empty)
    * @throws NullPointerException if {@code path} or {@code formatter}
@@ -94,8 +94,11 @@ public class FileResultWriter<T> implements ResultWriter<T> {
    * header-only block.</p>
    *
    * @param items the elements to write
-   * @throws NullPointerException if {@code items} is null
-   * @throws UncheckedIOException if an I/O error occurs
+   * @throws NullPointerException if {@code items} is null, or if the
+   *         formatter returns null for one of the items
+   * @throws UncheckedIOException if an I/O error occurs. WHY terminal:
+   *         no reasonable retry strategy exists at this level, so the
+   *         exception is meant to propagate and stop the caller
    */
   @Override
   public synchronized void appendAll(List<T> items) {
@@ -107,11 +110,19 @@ public class FileResultWriter<T> implements ResultWriter<T> {
     List<String> lines = new ArrayList<>(items.size() + 1);
     lines.add(buildHeader());
     for (T item : items) {
-      lines.add(formatter.apply(item));
+      // WHY the guard: a null line would otherwise surface as an
+      // empty-message NPE deep inside java.io.Writer, with no hint
+      // that the formatter is the culprit
+      String line = formatter.apply(item);
+      Objects.requireNonNull(line,
+                             () -> "formatter returned null for item: " + item);
+      lines.add(line);
     }
 
     try {
-      Files.write(path, lines, StandardCharsets.UTF_8,
+      // WHY explicit WRITE: APPEND implies it, but spelling the trio
+      // out keeps the open-mode self-documenting
+      Files.write(path, lines, StandardCharsets.UTF_8, StandardOpenOption.WRITE,
                   StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     } catch (IOException e) {
       throw new UncheckedIOException("Failed to write results to " + path, e);
