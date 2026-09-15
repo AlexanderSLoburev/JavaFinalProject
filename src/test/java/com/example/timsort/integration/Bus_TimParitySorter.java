@@ -136,7 +136,7 @@ class TimParitySorterIntegrationTest {
         List.of(bus(10, "A"), bus(2, "B"), bus(8, "C"), bus(4, "D"));
 
     List<Bus> expected = new ArrayList<>(input);
-    expected.sort(Comparator.comparingInt(Bus::routeNumber)); // оракул — stdlib
+    expected.sort(Comparator.comparingInt(Bus::routeNumber)); // oracle — stdlib
 
     assertEquals(expected, sorter.sort(input));
   }
@@ -270,7 +270,7 @@ class TimParitySorterIntegrationTest {
   private static List<Integer> randomIntegerList(Random random, int size) {
     List<Integer> list = new ArrayList<>(size);
     for (int i = 0; i < size; i++) {
-      list.add((int)(random.nextInt(21) - 10)); // [-10..10]: дубли и оба знака
+      list.add((int)(random.nextInt(21) - 10)); // [-10..10]: duplicates and both signs
     }
     return list;
   }

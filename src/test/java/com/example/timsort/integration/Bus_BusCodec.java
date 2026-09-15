@@ -40,7 +40,7 @@ class BusCodecIntegrationTest {
   private final BusCodec codec = new BusCodec();
 
   // -------------------------------------------------------------------
-  // Общие фабрики и утилиты
+  // Common factories and utilities
   // -------------------------------------------------------------------
 
   private static Bus bus(int routeNumber, String model, long mileage) {
@@ -52,21 +52,21 @@ class BusCodecIntegrationTest {
   }
 
   // ===================================================================
-  // 1. Раунд-трип через CSV
+  // 1. Round trip through CSV
   // ===================================================================
 
   @Nested
-  @DisplayName("Раунд-трип: Bus → CSV → Bus")
+  @DisplayName("Round trip: Bus → CSV → Bus")
   class CsvRoundTrip {
 
     @ParameterizedTest(name = "bus = {0};{1};{2}")
     @CsvSource(
         value =
             {
-                "42;ЛиАЗ-5292;150000",              // пример из javadoc кодека
-                "0;X;0",                            // минимальные значения
-                "2147483647;X;9223372036854775807", // максимум int и long
-                "7;Mercedes Sprinter;1"             // пробел внутри модели
+                "42;ЛиАЗ-5292;150000",              // example from codec javadoc
+                "0;X;0",                            // minimum values
+                "2147483647;X;9223372036854775807", // int and long max values
+                "7;Mercedes Sprinter;1"             // space inside the model
             },
         delimiter = ';')
     void when_busIsEncodedAndDecoded_then_equalBusIsRestored(int routeNumber,
@@ -78,9 +78,9 @@ class BusCodecIntegrationTest {
     }
 
     /**
-     * Задокументированное ограничение: кодек не экранирует ';' внутри model,
-     * поэтому закодированная строка распадается на 4 поля и не декодируется.
-     * Тест фиксирует текущее (lossy) поведение.
+     * Documented limitation: the codec does not escape ';' inside model,
+     * so the encoded string splits into 4 fields and fails to decode.
+     * This test captures the current (lossy) behavior.
      */
     @Test
     void when_modelContainsDelimiter_then_roundTripReturnsEmptyOptional() {
@@ -138,9 +138,9 @@ class BusCodecIntegrationTest {
     void when_decodeWellFormedCsv_then_fieldsAreMappedToRouteModelMileage() {
       Optional<Bus> decoded = codec.decode("42;ЛиАЗ-5292;150000");
 
-      // Целиком (проверяет equals/value-семантику разных экземпляров)...
+      // As a whole (checks equals/value semantics across different instances)...
       assertEquals(Optional.of(bus(42, "ЛиАЗ-5292", 150_000L)), decoded);
-      // ...и по полям — ловит транспозицию routeNumber <-> mileage
+      // ...and field-by-field — catches routeNumber <-> mileage transposition
       Bus decodedBus = decoded.orElseThrow();
       assertEquals(42, decodedBus.routeNumber());
       assertEquals("ЛиАЗ-5292", decodedBus.model());
@@ -166,32 +166,32 @@ class BusCodecIntegrationTest {
     @ParameterizedTest(name = "csv = \"{0}\"")
     @ValueSource(strings =
                      {
-                         " ",               // одна часть
-                         "42",              // одна часть
-                         "42;ЛиАЗ",         // две части
-                         "42;ЛиАЗ;1;extra", // четыре части
-                         "42;ЛиАЗ;150000;"  // хвостовой ';' -> четыре части
+                          " ",               // one part
+                          "42",              // one part
+                          "42;ЛиАЗ",         // two parts
+                          "42;ЛиАЗ;1;extra", // four parts
+                          "42;ЛиАЗ;150000;"  // trailing ';' -> four parts
                      })
     void when_decodeCsvWithWrongFieldCount_then_emptyOptionalIsReturned(
         String csv) {
       assertTrue(codec.decode(csv).isEmpty(),
-                 () -> "не ожидалось успеха для '" + csv + "'");
+                 () -> "unexpected success for '" + csv + "'");
     }
 
     @ParameterizedTest(name = "csv = \"{0}\"")
     @ValueSource(
         strings =
             {
-                "ноль;ЛиАЗ;150000",           // routeNumber не число
-                "42;ЛиАЗ;много",              // mileage не число
-                "42;ЛиАЗ;1.5",                // дробный mileage
+                "ноль;ЛиАЗ;150000",           // routeNumber is not a number
+                "42;ЛиАЗ;много",              // mileage is not a number
+                "42;ЛиАЗ;1.5",                // fractional mileage
                 "2147483648;ЛиАЗ;150000",     // routeNumber > Integer.MAX_VALUE
                 "42;ЛиАЗ;9223372036854775808" // mileage > Long.MAX_VALUE
             })
     void when_decodeCsvWithNonNumericNumbers_then_emptyOptionalIsReturned(
         String csv) {
       assertTrue(codec.decode(csv).isEmpty(),
-                 () -> "не ожидалось успеха для '" + csv + "'");
+                 () -> "unexpected success for '" + csv + "'");
     }
 
     // Codec is a transport layer: it checks syntax only. Semantic rules
@@ -218,11 +218,11 @@ class BusCodecIntegrationTest {
   }
 
   // ===================================================================
-  // 4. Сквозные сценарии
+  // 4. End-to-end scenarios
   // ===================================================================
 
   @Nested
-  @DisplayName("Сквозные сценарии: CSV + Java-сериализация")
+  @DisplayName("End-to-end: CSV + Java serialization")
   class EndToEnd {
 
     @Test
@@ -251,7 +251,7 @@ class BusCodecIntegrationTest {
           }));
         }
         for (Future<?> future : futures) {
-          future.get(30, TimeUnit.SECONDS); // прокинет AssertionError из потока
+          future.get(30, TimeUnit.SECONDS); // will propagate AssertionError from the thread
         }
       } finally {
         pool.shutdownNow();

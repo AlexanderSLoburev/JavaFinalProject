@@ -37,8 +37,8 @@ class ParallelOccurrenceCounterTest {
 
   @BeforeEach
   void setUp() {
-    // Тесты подставляют собственный пул — ту же роль, что composition
-    // root играет в проде.
+    // Tests supply their own pool — playing the same role that the composition
+    // root plays in production.
     pool = Executors.newFixedThreadPool(
         Runtime.getRuntime().availableProcessors());
     counter = new ParallelOccurrenceCounter<>(pool);
@@ -46,7 +46,7 @@ class ParallelOccurrenceCounterTest {
 
   @AfterEach
   void tearDown() throws InterruptedException {
-    // Пул корректно завершается владельцем — в тестах владельцем является тест
+    // Pool is properly shut down by its owner — in tests the owner is the test
     pool.shutdown();
     if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
       pool.shutdownNow();
@@ -54,7 +54,7 @@ class ParallelOccurrenceCounterTest {
   }
 
   // -------------------------------------------------------------------
-  // Хелперы
+  // Helpers
   // -------------------------------------------------------------------
 
   /**
@@ -81,7 +81,7 @@ class ParallelOccurrenceCounterTest {
         .build();
   }
 
-  /** Каждый period-й элемент — новый экземпляр target, остальные — прочие. */
+  /** Every period-th element is a fresh target instance, the rest are other buses. */
   private static CustomArrayList<Bus> busesWithPeriod(int size, int period) {
     CustomArrayList<Bus> data = new CustomArrayList<>();
     for (int i = 0; i < size; i++) {
@@ -90,7 +90,7 @@ class ParallelOccurrenceCounterTest {
     return data;
   }
 
-  /** Независимый последовательный эталон: тоже ручной цикл. */
+  /** Independent sequential reference: also a manual loop. */
   private static long sequentialCount(List<Bus> data, Bus target) {
     long count = 0;
     for (Bus item : data) {
@@ -101,13 +101,13 @@ class ParallelOccurrenceCounterTest {
     return count;
   }
 
-  /** Число индексов i в [0, size) с i % period == 0 — ceil(size / period). */
+  /** Count of indices i in [0, size) with i % period == 0 — ceil(size / period). */
   private static long expectedPeriodMatches(int size, int period) {
     return (size + period - 1) / period;
   }
 
   // -------------------------------------------------------------------
-  // Точные значения
+  // Exact values
   // -------------------------------------------------------------------
 
   @Test
@@ -131,20 +131,20 @@ class ParallelOccurrenceCounterTest {
 
   @Test
   void when_smallCollectionWithKnownMatches_then_exactCount() {
-    // 10 элементов, target на каждом 3-м месте: индексы 0, 3, 6, 9
+    // 10 elements, target at every 3rd position: indices 0, 3, 6, 9
     assertEquals(4, counter.count(busesWithPeriod(10, 3), targetBus()));
   }
 
   @Test
   void when_largeCollectionWithKnownMatches_then_exactCount() {
-    // 10 000 элементов, target на каждом 7-м месте: ceil(10000 / 7) = 1429
+    // 10 000 elements, target at every 7th position: ceil(10000 / 7) = 1429
     assertEquals(1_429, counter.count(busesWithPeriod(10_000, 7), targetBus()));
   }
 
   @Test
   void when_allElementsMatchTarget_then_countEqualsSize() {
-    // Все 10 000 — разные экземпляры, равные по значению:
-    // агрегация обязана работать через equals, а не ссылки
+    // All 10 000 are distinct instances, equal by value:
+    // aggregation must work through equals, not references
     CustomArrayList<Bus> data = new CustomArrayList<>();
     for (int i = 0; i < 10_000; i++) {
       data.add(targetBus());
@@ -162,7 +162,7 @@ class ParallelOccurrenceCounterTest {
   }
 
   // -------------------------------------------------------------------
-  // Сверка с последовательным эталоном на разных размерах
+  // Comparison with sequential reference at various sizes
   // -------------------------------------------------------------------
 
   @ParameterizedTest(name = "size = {0}")
@@ -171,13 +171,13 @@ class ParallelOccurrenceCounterTest {
     CustomArrayList<Bus> data = busesWithPeriod(size, 3);
     long parallel = counter.count(data, targetBus());
     assertEquals(sequentialCount(data, targetBus()), parallel,
-                 "Параллельный подсчёт должен совпасть с последовательным");
-    // sanity: сам эталон считает то, что мы задумали
+                 "Parallel count must match sequential count");
+    // sanity: the reference counts what we intended
     assertEquals(expectedPeriodMatches(size, 3), parallel);
   }
 
   // -------------------------------------------------------------------
-  // Value-семантика Bus (включая «широкие» экземпляры с null-полями)
+  // Value-semantics of Bus (including "wide" instances with null fields)
   // -------------------------------------------------------------------
 
   @Test
@@ -188,13 +188,13 @@ class ParallelOccurrenceCounterTest {
     data.add(targetBus());
     data.add(otherBus(2));
     assertEquals(2, counter.count(data, targetBus()),
-                 "Разные экземпляры с одинаковыми полями — это вхождения");
+                 "Distinct instances with identical fields count as occurrences");
   }
 
   @Test
   void when_busModelIsNull_then_stillComparedByValue() {
-    // Bus — широкий носитель: null-модель допустима, equals использует
-    // Objects.equals, поэтому два таких экземпляра равны по значению
+    // Bus is a wide holder: null model is allowed, equals uses
+    // Objects.equals, so two such instances are equal by value
     CustomArrayList<Bus> data = new CustomArrayList<>();
     data.add(Bus.builder().routeNumber(1).model(null).mileage(5).build());
     data.add(Bus.builder().routeNumber(2).model("X").mileage(5).build());
@@ -206,13 +206,13 @@ class ParallelOccurrenceCounterTest {
   }
 
   // -------------------------------------------------------------------
-  // null-семантика самого списка
+  // null-semantics of the list itself
   // -------------------------------------------------------------------
 
   @Test
   void when_nullTarget_then_countsNullElements() {
-    // WHY java.util.ArrayList: контракт — java.util.List; некоторые
-    // реализации могут не допускать null-элементов
+    // WHY java.util.ArrayList: contract — java.util.List; some
+    // implementations may not allow null elements
     List<Bus> withNulls = new ArrayList<>();
     withNulls.add(otherBus(1));
     withNulls.add(null);
@@ -230,12 +230,12 @@ class ParallelOccurrenceCounterTest {
   }
 
   // -------------------------------------------------------------------
-  // Executor: подсчёт выполняется на потоках пула
-  // (не на Bus: тесту нужен инструментированный equals)
+  // Executor: counting runs on pool threads
+  // (not on Bus: the test needs an instrumented equals)
   // -------------------------------------------------------------------
 
   /**
-   * Элемент, чей equals фиксирует поток, в котором выполнялось сравнение.
+   * Element whose equals records the thread that performed the comparison.
    */
   private static final class RecordingElement {
     final Set<String> threads;
@@ -269,17 +269,17 @@ class ParallelOccurrenceCounterTest {
         new ParallelOccurrenceCounter<>(pool);
 
     assertEquals(10_000, recordingCounter.count(data, target));
-    // join гарантирует happens-before: все записи видны после count.
-    // Сравнения выполнялись в пуле, а не в потоке теста:
+    // join guarantees happens-before: all writes are visible after count.
+    // Comparisons ran in the pool, not in the test thread:
     assertFalse(threads.contains(Thread.currentThread().getName()),
-                "Подсчёт должен выполняться на потоках executor'а, а не " +
-                "вызывающего потока");
+                "Counting must run on executor threads, not on the " +
+                "calling thread");
   }
 
   @Test
   void when_singleThreadExecutor_then_resultIsStillCorrect()
       throws InterruptedException {
-    // Робастность: алгоритм корректен при любом размере пула
+    // Robustness: algorithm is correct for any pool size
     ExecutorService single = Executors.newSingleThreadExecutor();
     try {
       ParallelOccurrenceCounter<Bus> singleCounter =
@@ -290,12 +290,12 @@ class ParallelOccurrenceCounterTest {
     } finally {
       single.shutdown();
       assertTrue(single.awaitTermination(5, TimeUnit.SECONDS),
-                 "Пул должен завершиться после shutdown");
+                 "Pool must terminate after shutdown");
     }
   }
 
   // -------------------------------------------------------------------
-  // Контракты
+  // Contracts
   // -------------------------------------------------------------------
 
   @Test
