@@ -7,3 +7,5 @@ target/
 *.iws
 *.ipr
 uml-diagrams
+*.csv
+*.txt

@@ -3,9 +3,7 @@ package com.example.timsort.app;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.example.timsort.io.ConsoleIO;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -160,7 +158,7 @@ class ApplicationTest {
   void sessionCommands_refuseEmptyCollection() {
     Path results = tempDir.resolve("results.txt");
     FakeConsoleIO console =
-        new FakeConsoleIO("2", // show — no collection yet
+        new FakeConsoleIO("2", // show — both slots unset
                           "3", // sort — no collection
                           "6", // parity sort — no collection
                           "8", // count — no collection
@@ -169,9 +167,18 @@ class ApplicationTest {
     Application.run(tempDir.resolve("buses.csv"), results, console);
 
     String out = console.outputText();
-    assertEquals(
-        4, countOccurrences(out, "Collection is empty. Fill it first."),
-        "All four session commands must print the empty-collection hint");
+
+    // Commands 3/6/8 share the AbstractSessionCommand guard
+    assertEquals(3,
+                 countOccurrences(out, "Collection is empty. Fill it first."),
+                 "The sorting/parity/count commands must print the " +
+                 "empty-collection hint");
+
+    // Show reports both slots as unset instead of refusing
+    assertTrue(out.contains("Current collection: not set yet."),
+               "Show must report the unset current slot");
+    assertTrue(out.contains("Last result: not set yet."),
+               "Show must report the unset last-result slot");
   }
 
   @Test

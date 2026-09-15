@@ -108,11 +108,11 @@ public class ConsoleMenu {
   }
 
   private void printMenu() {
-    io.println("Menu:");
+    io.println("\nMenu:");
     for (Map.Entry<Integer, CommandEntry> entry : options.entrySet()) {
       io.println(entry.getKey() + ". " + entry.getValue().description());
     }
-    io.print("Choose an option: ");
+    io.print("\nChoose an option: ");
   }
 
   /**

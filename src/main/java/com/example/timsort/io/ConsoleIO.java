@@ -45,7 +45,7 @@ public interface ConsoleIO {
    * Returns this console as a PrintStream, for components that print
    * diagnostics through a stream API (e.g. FileBusSource warnings).
    *
-   * <p>WHY: the application output must flow through ONE channel — the
+   * <p>The application output must flow through ONE channel — the
    * injected ConsoleIO — no matter which API the component prefers.
    * Without this adapter, stream-based components silently fall back
    * to System.out and their warnings become invisible to tests and to

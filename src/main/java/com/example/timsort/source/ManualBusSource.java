@@ -58,15 +58,15 @@ public class ManualBusSource implements DataSource<Bus> {
       try {
         bus = readBusWithRetries();
       } catch (InputClosedSignal e) {
-        console.print("Input closed. Entered " + result.size() + " of " +
-                      count + " buses.");
+        console.println("Input closed. Entered " + result.size() + " of " +
+                        count + " buses.");
         return result;
       }
 
       if (bus != null) {
         result.add(bus);
       } else {
-        console.print("Attempts exceeded. The element is skipped.");
+        console.println("Attempts exceeded. The element is skipped.");
       }
     }
 
@@ -84,7 +84,7 @@ public class ManualBusSource implements DataSource<Bus> {
       try {
         // keep the hints in sync with the BusValidator ranges
         console.print("Enter the route number (" +
-                      BusValidationConstants.MAX_ROUTE_NUMBER + "-" +
+                      BusValidationConstants.MIN_ROUTE_NUMBER + "-" +
                       BusValidationConstants.MAX_ROUTE_NUMBER + "): ");
         int routeNumber = Integer.parseInt(readRequiredLine().trim());
 
@@ -107,15 +107,15 @@ public class ManualBusSource implements DataSource<Bus> {
         if (validation.isValid()) {
           return candidate;
         }
-        console.print("Validation error: " +
-                      String.join(", ", validation.errors()));
+        console.println("Validation error: " +
+                        String.join(", ", validation.errors()));
 
       } catch (NumberFormatException e) {
-        console.print("Error: not a valid number. Try again.");
+        console.println("Error: not a valid number. Try again.");
       }
 
       if (attempt < MAX_ATTEMPTS) {
-        console.print("Attempts left: " + (MAX_ATTEMPTS - attempt));
+        console.println("Attempts left: " + (MAX_ATTEMPTS - attempt));
       }
     }
     return null;

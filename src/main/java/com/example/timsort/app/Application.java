@@ -109,7 +109,7 @@ public final class Application {
   private static void registerCommands(ConsoleMenu menu, AppConfig config) {
     menu.register(0, "Exit", new ExitCommand(config));
     menu.register(1, "Fill collection", new FillCollectionCommand(config));
-    menu.register(2, "Show current collection",
+    menu.register(2, "Show collection and last result",
                   new ShowCollectionCommand(config));
     menu.register(3, "Sort by route number",
                   new SortByFieldCommand(config, BusField.ROUTE_NUMBER));

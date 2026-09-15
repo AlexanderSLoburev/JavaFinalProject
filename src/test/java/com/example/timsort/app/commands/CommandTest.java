@@ -138,15 +138,17 @@ class CommandTest {
   }
 
   @Test
-  @DisplayName("Session commands refuse to run on an empty session")
-  void when_noCollection_then_sessionCommandPrintsHint() {
-    // no setCurrent — the session is empty
+  @DisplayName("Show reports both slots as unset on a fresh session")
+  void when_nothingSet_then_showReportsBothSlotsUnset() {
+    // no setCurrent, no setLastResult — the session is fresh
 
     new ShowCollectionCommand(config).execute(null);
 
-    assertTrue(console.outputText().contains("Collection is empty"),
-               "The empty-collection hint must be printed, output: " +
-                   console.outputText());
+    String out = console.outputText();
+    assertTrue(out.contains("Current collection: not set yet."),
+               "The current slot must be reported as unset, output: " + out);
+    assertTrue(out.contains("Last result: not set yet."),
+               "The result slot must be reported as unset, output: " + out);
   }
 
   // -------------------------------------------------------------------
@@ -223,6 +225,31 @@ class CommandTest {
     assertTrue(console.outputText().contains("Collection filled: 1 elements"),
                "The command must report the size, output: " +
                    console.outputText());
+  }
+
+  @Test
+  @DisplayName("Show prints the last result alongside the current collection")
+  void when_showAfterSort_then_resultSlotIsPrinted() {
+    fillSession(bus(3, "C", 3), bus(1, "A", 1)); // current: [3, 1] — UNSORTED
+    List<Bus> sorted = List.of(bus(1, "A", 1), bus(3, "C", 3));
+    session.setLastResult(sorted); // result: [1, 3] — sorted
+
+    new ShowCollectionCommand(config).execute(null);
+
+    String out = console.outputText();
+    assertTrue(out.contains("Current collection (2 elements)"),
+               "The current slot must be shown, output: " + out);
+    assertTrue(out.contains("Last result (2 elements)"),
+               "The result slot must be shown, output: " + out);
+
+    // WHY segment-based: the current slot also contains both buses, so
+    // global indexOf would match the WRONG block. Compare inside the
+    // result segment only.
+    String resultSegment = out.substring(out.indexOf("Last result"));
+    int pos1 = resultSegment.indexOf("1"); // route of the first sorted bus
+    int pos3 = resultSegment.indexOf("3"); // route of the second
+    assertTrue(pos1 >= 0 && pos3 > pos1,
+               "Inside the result slot the sorted order must be visible");
   }
 
   // -------------------------------------------------------------------
