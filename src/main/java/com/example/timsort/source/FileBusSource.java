@@ -84,9 +84,7 @@ public class FileBusSource implements DataSource<Bus> {
     try (Stream<String> lines = Files.lines(path)) {
       AtomicInteger lineNumber = new AtomicInteger(FIRST_DATA_LINE_NUMBER);
 
-      // WHY skip before numbering: the header occupies file line 1, so
-      // the first data line is line 2 — the counter starts there.
-      // WHY numbering before the blank filter: a blank line occupies a
+      // Why numbering before the blank filter: a blank line occupies a
       // line number in the file; filtering it earlier would shift the
       // numbers of all subsequent lines
       CustomArrayList<Bus> result =
