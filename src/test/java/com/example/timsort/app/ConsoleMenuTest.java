@@ -1,7 +1,8 @@
-package com.example.timsort.io;
+package com.example.timsort.app;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.example.timsort.io.ConsoleIO;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;

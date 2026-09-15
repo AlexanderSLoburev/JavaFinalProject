@@ -301,7 +301,7 @@ class FileBusSourceTest {
   void when_negativeCount_then_throwsException() throws IOException {
     // Arrange
     Path file = createTempFile(List.of("routeNumber;model;mileage"));
-    FileBusSource source = new FileBusSource(file, codec, validator);
+    FileBusSource source = source(file, new ByteArrayOutputStream());
 
     // Act & Assert
     assertThrows(IllegalArgumentException.class,

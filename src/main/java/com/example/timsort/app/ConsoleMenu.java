@@ -1,5 +1,7 @@
-package com.example.timsort.io;
+package com.example.timsort.app;
 
+import com.example.timsort.app.commands.Command;
+import com.example.timsort.io.ConsoleIO;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;

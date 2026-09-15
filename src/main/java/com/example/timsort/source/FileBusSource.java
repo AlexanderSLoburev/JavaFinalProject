@@ -34,23 +34,20 @@ public class FileBusSource implements DataSource<Bus> {
   private final PrintStream output;
 
   /**
-   * Constructor with output to System.out.
+   * Constructor with a configurable output.
+   *
+   * <p>WHY the convenience System.out constructor was removed: it hid a
+   * dependency — warnings silently went to the real console, invisible
+   * to injected ConsoleIO implementations and tests. The caller now
+   * decides where diagnostics go (the same rule as with all other
+   * dependencies).</p>
    *
    * @param path      path to the CSV file
    * @param codec     codec for decoding lines
    * @param validator validator for checking objects
-   */
-  public FileBusSource(Path path, BusCodec codec, Validator<Bus> validator) {
-    this(path, codec, validator, System.out);
-  }
-
-  /**
-   * Constructor with a configurable output (for tests).
-   *
-   * @param path      path to the CSV file
-   * @param codec     codec for decoding lines
-   * @param validator validator for checking objects
-   * @param output    stream for warnings
+   * @param output    stream for warnings; use the application console's
+   *                  {@code asPrintStream()} view to keep diagnostics
+   *                  in the single output channel
    * @throws NullPointerException if any parameter is null
    */
   public FileBusSource(Path path, BusCodec codec, Validator<Bus> validator,

@@ -1,4 +1,6 @@
-package com.example.timsort.io;
+package com.example.timsort.app.commands;
+
+import com.example.timsort.app.ConsoleMenu;
 
 /**
  * A menu action.
