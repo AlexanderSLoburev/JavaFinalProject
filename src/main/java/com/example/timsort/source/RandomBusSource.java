@@ -2,6 +2,7 @@ package com.example.timsort.source;
 
 import com.example.timsort.collection.CustomArrayList;
 import com.example.timsort.model.Bus;
+import com.example.timsort.validation.BusValidationConstants;
 import com.example.timsort.validation.ValidationResult;
 import com.example.timsort.validation.Validator;
 import java.util.List;
@@ -9,7 +10,6 @@ import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-
 
 /**
  * Data source generating random valid Bus objects with the Stream API
@@ -25,18 +25,9 @@ import java.util.stream.IntStream;
  */
 public class RandomBusSource implements DataSource<Bus> {
 
-  // keep in sync with the BusValidator ranges
   private static final List<String> MODELS_POOL =
       List.of("ЛиАЗ-5292", "МАЗ-203", "ПАЗ-3204", "Волжанин-6270", "НефАЗ-5299",
               "KAvZ-4270", "ГолАЗ-6228", "MAN Lion City");
-
-  // keep in sync with the BusValidator ranges
-  private static final int MIN_ROUTE_NUMBER = 1;
-  private static final int MAX_ROUTE_NUMBER = 999;
-
-  // keep in sync with the BusValidator ranges
-  private static final long MIN_MILEAGE = 0;
-  private static final long MAX_MILEAGE = 2_000_000;
 
   private final Validator<Bus> validator;
 
@@ -81,11 +72,14 @@ public class RandomBusSource implements DataSource<Bus> {
    * @return a valid bus
    */
   private Bus generateValidBus() {
-    Bus bus = Bus.builder()
-                  .routeNumber(randomInt(MIN_ROUTE_NUMBER, MAX_ROUTE_NUMBER))
-                  .model(randomModel())
-                  .mileage(randomLong(MIN_MILEAGE, MAX_MILEAGE))
-                  .build();
+    Bus bus =
+        Bus.builder()
+            .routeNumber(randomInt(BusValidationConstants.MIN_ROUTE_NUMBER,
+                                   BusValidationConstants.MAX_ROUTE_NUMBER))
+            .model(randomModel())
+            .mileage(randomLong(BusValidationConstants.MIN_MILEAGE,
+                                BusValidationConstants.MAX_MILEAGE))
+            .build();
 
     ValidationResult<Bus> result = validator.validate(bus);
     if (!result.isValid()) {

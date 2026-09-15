@@ -13,7 +13,7 @@ public interface DataSource<T> {
   /**
    * Requests up to {@code count} elements.
    *
-   * <p>WHY "up to": implementations differ in how much they can
+   * <p>Note: implementations differ in how much they can
    * actually deliver. FileBusSource returns as many valid lines as the
    * file holds; ManualBusSource skips elements with exhausted attempts
    * and stops at EOF; RandomBusSource always returns exactly

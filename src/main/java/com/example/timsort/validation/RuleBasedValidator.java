@@ -1,6 +1,9 @@
 package com.example.timsort.validation;
 
+import com.example.timsort.collection.CustomArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+
 
 /**
  * Generic validator backed by a list of rules: applies every rule and
@@ -30,7 +33,9 @@ public final class RuleBasedValidator<T> implements Validator<T> {
     }
 
     List<String> errors =
-        rules.stream().flatMap(rule -> rule.apply(value).stream()).toList();
+        rules.stream()
+            .flatMap(rule -> rule.apply(value).stream())
+            .collect(Collectors.toCollection(CustomArrayList::new));
 
     return errors.isEmpty() ? ValidationResult.of(value)
                             : ValidationResult.failure(errors);

@@ -1,7 +1,7 @@
 package com.example.timsort.source;
 
-import com.example.timsort.io.ConsoleIO;
 import com.example.timsort.collection.CustomArrayList;
+import com.example.timsort.io.ConsoleIO;
 import com.example.timsort.model.Bus;
 import com.example.timsort.validation.BusValidationConstants;
 import com.example.timsort.validation.ValidationResult;
@@ -11,10 +11,6 @@ import java.util.Objects;
 /**
  * Data source that asks the user to enter buses via the console.
  * Implements the Strategy pattern (DataSource).
- *
- * <p>WHY the validator is injected: semantic rules (ranges, model
- * format) have a single source of truth — the validator; this class
- * only orchestrates the dialog and the retries.</p>
  */
 public class ManualBusSource implements DataSource<Bus> {
 
